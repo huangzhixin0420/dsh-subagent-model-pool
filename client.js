@@ -408,6 +408,12 @@
         this.form.dispose();
       };
 
+      // 存储值是英文枚举（写进 cordis.patch.yml，后端 STRATEGIES 匹配），
+      // 界面显示中文；下拉项里保留英文键名便于与 YAML 对照。
+      var STRATEGY_LABELS = {
+        "fewest-active": "占用最少优先",
+        "least-recently-used": "最久未用优先"
+      };
       var STRATEGY_DESC = {
         "fewest-active": "挑当前占用数最少的候选",
         "least-recently-used": "挑最久未被占用的候选"
@@ -445,8 +451,10 @@
                       label: jsxs("span", {
                         className: "smp-strategyItem",
                         children: [
-                          jsx("span", { className: "smp-strategyName", children: id }),
-                          jsx("span", { className: "smp-strategyDesc", children: STRATEGY_DESC[id] })
+                          jsx("span", { className: "smp-strategyName", children: STRATEGY_LABELS[id] }),
+                          jsxs("span", { className: "smp-strategyDesc", children: [
+                            id + " · " + STRATEGY_DESC[id]
+                          ] })
                         ]
                       })
                     };
@@ -468,7 +476,7 @@
                     disabled: props.disabled,
                     onClick: function () { setOpen(function (v) { return !v; }); },
                     children: [
-                      jsx("span", { children: current }),
+                      jsx("span", { children: STRATEGY_LABELS[current] ?? current }),
                       jsx(primitives.IconChevronDownOutlineRegular, { className: "smp-strategyChevron" })
                     ]
                   })
