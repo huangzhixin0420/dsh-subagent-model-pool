@@ -42,9 +42,20 @@ test("normalizePools 保留合法项", () => {
     { provider: "c2a", model: "free", maxConcurrent: 5 },
   ]);
   assert.deepEqual(out, [
-    { provider: "c2a", model: "subagent", maxConcurrent: 3 },
-    { provider: "c2a", model: "free", maxConcurrent: 5 },
+    { provider: "c2a", model: "subagent", maxConcurrent: 3, weight: 1 },
+    { provider: "c2a", model: "free", maxConcurrent: 5, weight: 1 },
   ]);
+});
+
+test("normalizePools 保留合法权重，非法回落 1", () => {
+  const { normalizePools } = loadTestExports();
+  const out = normalizePools([
+    { provider: "c2a", model: "a", maxConcurrent: 3, weight: 8 },
+    { provider: "c2a", model: "b", maxConcurrent: 3, weight: 0 },
+    { provider: "c2a", model: "c", maxConcurrent: 3, weight: -2 },
+    { provider: "c2a", model: "d", maxConcurrent: 3, weight: 2.5 },
+  ]);
+  assert.deepEqual(out.map((e) => e.weight), [8, 1, 1, 1]);
 });
 
 test("normalizePools 缺 maxConcurrent 时补默认值", () => {

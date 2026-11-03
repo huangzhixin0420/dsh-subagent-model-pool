@@ -28,6 +28,7 @@ const PoolEntry = z.object({
   provider: z.string().min(1).required(),
   model: z.string().min(1).required(),
   maxConcurrent: z.number().min(1).step(1).default(DEFAULT_MAX_CONCURRENT),
+  weight: z.number().min(1).step(1).default(1),
 });
 
 // 顶层 .volatile() 是设置页可见性的开关：dsh-settings 的 describe() 用
@@ -100,7 +101,7 @@ function signatureOf(config) {
   return JSON.stringify([
     config?.enabled !== false,
     config?.strategy,
-    pools.map((item) => [item?.provider, item?.model, item?.maxConcurrent]),
+    pools.map((item) => [item?.provider, item?.model, item?.weight, item?.maxConcurrent]),
   ]);
 }
 

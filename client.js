@@ -110,7 +110,13 @@
           if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) {
             limit = DEFAULT_MAX_CONCURRENT;
           }
-          out.push({ provider: entry.provider, model: entry.model, maxConcurrent: limit });
+          var weight = entry.weight;
+          out.push({
+            provider: entry.provider,
+            model: entry.model,
+            maxConcurrent: limit,
+            weight: typeof weight === "number" && Number.isInteger(weight) && weight >= 1 ? weight : 1
+          });
         }
         return out;
       }
@@ -141,7 +147,8 @@
               model: model.id,
               name: model.name || model.id,
               selected: stored[key] !== undefined,
-              maxConcurrent: stored[key] ? stored[key].maxConcurrent : DEFAULT_MAX_CONCURRENT
+              maxConcurrent: stored[key] ? stored[key].maxConcurrent : DEFAULT_MAX_CONCURRENT,
+              weight: stored[key] && stored[key].weight ? stored[key].weight : 1
             });
           }
           if (rows.length > 0) out.push({ id: group.id, name: group.name || group.id, rows: rows });
@@ -159,7 +166,8 @@
             name: pool.model,
             selected: true,
             stale: true,
-            maxConcurrent: pool.maxConcurrent
+            maxConcurrent: pool.maxConcurrent,
+            weight: pool.weight ? pool.weight : 1
           });
         }
         if (orphans.length > 0) out.push({ id: "\u0000stale", name: "已不在模型目录中", rows: orphans });
@@ -214,6 +222,7 @@
           if (current[i].provider !== desired[i].provider) return true;
           if (current[i].model !== desired[i].model) return true;
           if (current[i].maxConcurrent !== desired[i].maxConcurrent) return true;
+          if (current[i].weight !== desired[i].weight) return true;
         }
         return false;
       };
@@ -285,7 +294,10 @@
       ModelPoolController.prototype.beginDraft = function () {
         if (this.draft === undefined) {
           this.draft = this.currentPools().map(function (item) {
-            return { provider: item.provider, model: item.model, maxConcurrent: item.maxConcurrent };
+            return {
+              provider: item.provider, model: item.model,
+              maxConcurrent: item.maxConcurrent, weight: item.weight
+            };
           });
         }
         return this.draft;
@@ -305,7 +317,10 @@
           }
         }
         var route = parsePoolKey(key);
-        draft.push({ provider: route.provider, model: route.model, maxConcurrent: DEFAULT_MAX_CONCURRENT });
+        draft.push({
+          provider: route.provider, model: route.model,
+          maxConcurrent: DEFAULT_MAX_CONCURRENT, weight: 1
+        });
         this.failed = false;
         this.store.set(this.projection());
       };
@@ -319,6 +334,21 @@
           var n = Number(value);
           if (!Number.isInteger(n) || n < 1) return;
           draft[i].maxConcurrent = n;
+          this.failed = false;
+          this.store.set(this.projection());
+          return;
+        }
+      };
+
+      /** 改某个候选的权重（比例或优先级，语义随策略）。 */
+      ModelPoolController.prototype.setWeight = function (key, value) {
+        if (this.saving) return;
+        var draft = this.beginDraft();
+        for (var i = 0; i < draft.length; i++) {
+          if (poolKey(draft[i].provider, draft[i].model) !== key) continue;
+          var n = Number(value);
+          if (!Number.isInteger(n) || n < 1) return;
+          draft[i].weight = n;
           this.failed = false;
           this.store.set(this.projection());
           return;
@@ -355,7 +385,10 @@
             op: "set",
             path: ["pools"],
             value: this.desiredPools().map(function (item) {
-              return { provider: item.provider, model: item.model, maxConcurrent: item.maxConcurrent };
+              return {
+                provider: item.provider, model: item.model,
+                maxConcurrent: item.maxConcurrent, weight: item.weight
+              };
             })
           }])).then(function () { return true; }, function () { return false; })
           : Promise.resolve(true);
@@ -397,6 +430,7 @@
           setEnabled: function (enabled) { void self.scope.set("enabled", enabled); },
           toggleRow: function (key) { self.toggleRow(key); },
           setLimit: function (key, value) { self.setLimit(key, value); },
+          setWeight: function (key, value) { self.setWeight(key, value); },
           retryCatalog: function () { self.catalogStatus = "idle"; self.loadCatalog(); },
           save: function () { self.save(); },
           discard: function () { self.discard(); }
@@ -412,11 +446,13 @@
       // 界面显示中文；下拉项里保留英文键名便于与 YAML 对照。
       var STRATEGY_LABELS = {
         "fewest-active": "占用最少优先",
-        "least-recently-used": "最久未用优先"
+        "least-recently-used": "最久未用优先",
+        "strict-priority": "严格主备"
       };
       var STRATEGY_DESC = {
-        "fewest-active": "挑当前占用数最少的候选",
-        "least-recently-used": "挑最久未被占用的候选"
+        "fewest-active": "按 占用÷权重 比值最小派发，稳态占用趋近权重比例",
+        "least-recently-used": "挑最久未被占用的候选（权重不生效）",
+        "strict-priority": "权重即优先级：高者未占满绝不轮到低者"
       };
 
       /**
@@ -546,7 +582,21 @@
                   row.selected
                     ? jsxs("label", {
                       className: "smp-limit",
+                      title: "占用最少策略下=期望占用占比；严格主备下=优先级（大者优先）",
                       children: [
+                        jsx("span", { children: "权重" }),
+                        jsx("input", {
+                          className: "smp-num",
+                          type: "number",
+                          min: 1,
+                          step: 1,
+                          value: String(row.weight),
+                          disabled: disabled,
+                          "data-smp-weight": row.key,
+                          onChange: function (key) {
+                            return function (event) { props.setWeight(key, event.currentTarget.value); };
+                          }(row.key)
+                        }),
                         jsx("span", { children: "并发上限" }),
                         jsx("input", {
                           className: "smp-num",
@@ -601,7 +651,7 @@
               jsx("span", { className: "smp-label", children: "候选模型" }),
               jsx("p", {
                 className: "smp-hint",
-                children: "勾选即加入池。并发上限指该模型可同时被几个子代理占用，默认 " + DEFAULT_MAX_CONCURRENT + "。全部占满时回退父会话路由。"
+                children: "勾选即加入池。权重默认 1：占用最少策略下=期望占用占比，严格主备下=优先级（大者优先）。并发上限=可同时被几个子代理占用，默认 " + DEFAULT_MAX_CONCURRENT + "。全部占满时回退父会话路由。"
               }),
               jsx("div", { className: "smp-pool", "data-smp-pool": true, children: listChildren }),
               jsx("p", { className: "smp-summary", children: state.summary }),

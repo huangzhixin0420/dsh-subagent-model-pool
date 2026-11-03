@@ -22,7 +22,7 @@
   name: dsh-subagent-model-pool
   config:
     enabled: true
-    strategy: fewest-active      # 或 least-recently-used
+    strategy: strict-priority    # 或 fewest-active / least-recently-used
     pools:
       - provider: c2a
         model: subagent
@@ -37,7 +37,7 @@
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 关闭后所有子代理沿用父路由 |
-| `strategy` | `fewest-active` | `fewest-active` 挑当前占用最少的；`least-recently-used` 挑最久未被占用的 |
+| `strategy` | `fewest-active` | 见下方策略表 |
 | `pools[].provider` / `.model` | 必填 | 候选路由 |
 | `pools[].maxConcurrent` | `3` | 该模型同时可被几个子代理占用 |
 
@@ -115,7 +115,15 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 「设置」→「子代理模型池」：
 
 - **启用开关**
-- **分配策略**：`fewest-active` / `least-recently-used`
+- **分配策略**（权重字段 `weight` 的语义随策略变化，默认 1）：
+
+| 策略 | weight 的含义 | 行为 |
+|---|---|---|
+| `fewest-active`（占用最少优先） | 期望占用占比 | 选「活跃占用 ÷ 权重」比值最小者；稳态占用趋近权重比例（8:2 → 80%:20%）。全为 1 时退化为旧行为 |
+| `least-recently-used`（最久未用优先） | 不生效 | 挑最近一次释放最早的候选 |
+| `strict-priority`（严格主备） | 优先级，从大到小 | 高权重候选未占满自己的 `maxConcurrent` 时绝不轮到低权重；占满即溢出到下一级，释放后新派发回到最高可用级。权重相同按配置数组序 |
+
+「用完」的口径统一是**并发占满**（瞬时状态），与历史累计派发次数无关；已派到低优先级的存量 run 不迁移，跑完为止（派发即锁定）。
 - **候选模型**：交互式复选框列表，候选来自 `llm` 的实时模型目录（按 provider 分组）。勾选即加入池，已勾选项右侧可单独设 `maxConcurrent`。
 
 改动后点「保存」写回 `cordis.patch.yml`。全部占满时回退父会话路由。

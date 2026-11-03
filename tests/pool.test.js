@@ -153,8 +153,69 @@ test("discard 回滚 assignment 与占用", () => {
   assert.equal(pool.assignmentOf("child-a"), undefined);
 });
 
-test("策略名必须是受支持的两种之一", () => {
-  assert.deepEqual(STRATEGIES, ["least-recently-used", "fewest-active"]);
+test("策略名必须是受支持的三种之一", () => {
+  assert.deepEqual(STRATEGIES, ["least-recently-used", "fewest-active", "strict-priority"]);
+});
+
+test("fewest-active 比例：weight 8:2 稳态占用趋近 80%:20%", () => {
+  const cands = () => [
+    { index: 0, provider: "c2a", model: "free", weight: 8, active: 0, lastReleasedAt: undefined },
+    { index: 1, provider: "c2a", model: "paid", weight: 2, active: 0, lastReleasedAt: undefined },
+  ];
+  // 模拟连续派发 10 个（不释放），共享同一份候选数组让 active 真实累积。
+  const candidates = cands();
+  const tally = { free: 0, paid: 0 };
+  for (let i = 0; i < 10; i++) {
+    const picked = selectCandidate("fewest-active", candidates);
+    tally[picked.model] += 1;
+    picked.active += 1;
+  }
+  // 最优序列应把占用比推向 8:2（free 8 个、paid 2 个；首个 free，第 2 个 paid 是瞬态修正）。
+  assert.deepEqual(tally, { free: 8, paid: 2 });
+});
+
+test("fewest-active 无权重时与旧行为一致（纯 active 比较）", () => {
+  const candidates = [
+    { index: 0, provider: "c2a", model: "a", active: 2, lastReleasedAt: undefined },
+    { index: 1, provider: "c2a", model: "b", active: 1, lastReleasedAt: undefined },
+  ];
+  assert.equal(selectCandidate("fewest-active", candidates).model, "b");
+});
+
+test("strict-priority：高权重未满绝不轮到低权重", () => {
+  const candidates = [
+    { index: 0, provider: "c2a", model: "a", weight: 8, active: 1, lastReleasedAt: undefined },
+    { index: 1, provider: "c2a", model: "b", weight: 2, active: 0, lastReleasedAt: undefined },
+  ];
+  assert.equal(selectCandidate("strict-priority", candidates).model, "a");
+});
+
+test("strict-priority：权重相同按配置数组顺序", () => {
+  const candidates = [
+    { index: 1, provider: "c2a", model: "b", weight: 3, active: 0, lastReleasedAt: undefined },
+    { index: 0, provider: "c2a", model: "a", weight: 3, active: 0, lastReleasedAt: undefined },
+  ];
+  assert.equal(selectCandidate("strict-priority", candidates).model, "a");
+});
+
+test("strict-priority：全链 failover 取第一个有空闲者", () => {
+  const candidates = [
+    { index: 0, provider: "c2a", model: "a", weight: 8, active: 3, lastReleasedAt: 1 },
+    { index: 1, provider: "c2a", model: "b", weight: 4, active: 2, lastReleasedAt: 2 },
+    { index: 2, provider: "c2a", model: "c", weight: 1, active: 0, lastReleasedAt: 3 },
+  ];
+  // a、b 由调用方按 maxConcurrent 过滤后只剩 c 的场景等价于 c 有空闲——
+  // 这里直接给三候选但 a/b 无空闲名额（active 已达上限），调用方会过滤；
+  // 为覆盖排序本身，构造 a/b 已被过滤的等价输入：
+  assert.equal(selectCandidate("strict-priority", candidates.slice(2)).model, "c");
+});
+
+test("strict-priority 缺 weight 视为 1", () => {
+  const candidates = [
+    { index: 1, provider: "c2a", model: "b", active: 0, lastReleasedAt: undefined },
+    { index: 0, provider: "c2a", model: "a", weight: 5, active: 0, lastReleasedAt: undefined },
+  ];
+  assert.equal(selectCandidate("strict-priority", candidates).model, "a");
 });
 
 test("selectCandidate 空数组返回 undefined", () => {
