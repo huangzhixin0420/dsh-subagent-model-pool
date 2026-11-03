@@ -1,12 +1,14 @@
-// 插件入口的 Config 校验测试。
+// 插件入口的 Config 校验与配置读取测试。
 //
-// 注意：Config 顶层带 .volatile()——那是设置页可见性的开关
-// （dsh-settings/lib/index.js:122-131 的 volatileForm 过滤），代价是
-// validate({}) 返回 {}，默认值不由 schema 填充。所以这里不测「默认值注入」，
-// 而是测运行时真正依赖的约束：非法输入被拒、apply 对缺省 config 的兜底。
+// 两条硬约束（都曾踩坑）：
+// 1. Config 顶层必须带 .volatile()，否则 dsh-settings 的 volatileForm 过滤掉
+//    本命名空间，设置页根本不出现（dsh-settings/lib/index.js:122-131）。
+// 2. 带 volatile 后 cordis 传给 apply 的不是普通对象，而是 cosmokit 的
+//    volatile 引用 { get(), [write] }（schemastery:480 → createVolatile）。
+//    直接读 config.pools 永远是 undefined，必须走 readConfig() 解包。
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Config, name, inject, apply } from "../index.js";
+import { Config, name, inject, apply, readConfig } from "../index.js";
 
 /** 按 cordis 的方式校验配置（resolveConfig 用 ~standard）。 */
 function validate(input) {
@@ -78,23 +80,24 @@ function stubCtx() {
   };
 }
 
-test("apply 在 pools 为空时不装配任何监听", () => {
+test("apply 始终注册监听（池空时在回调里放行，便于配置热更新）", () => {
   const { ctx, handlers, logs } = stubCtx();
   apply(ctx, { enabled: true, pools: [] });
-  assert.equal(handlers.size, 0);
-  assert.match(logs[0][1], /不装配/);
+  assert.ok(handlers.has("agent/request"), "池为空也要注册，否则改配置后无法生效");
+  assert.ok(logs.some(([, m]) => /未启用或模型池为空/.test(m)));
 });
 
-test("apply 在 enabled=false 时不装配", () => {
-  const { ctx, handlers } = stubCtx();
+test("apply 在 enabled=false 时也注册监听但日志说明不分配", () => {
+  const { ctx, handlers, logs } = stubCtx();
   apply(ctx, { enabled: false, pools: [{ provider: "c2a", model: "x" }] });
-  assert.equal(handlers.size, 0);
+  assert.ok(handlers.has("agent/request"));
+  assert.ok(logs.some(([, m]) => /未启用或模型池为空/.test(m)));
 });
 
-test("apply 缺省 enabled 视为启用（volatile 下 config 可能不全）", () => {
-  const { ctx, handlers } = stubCtx();
+test("apply 缺省 enabled 视为启用", () => {
+  const { ctx, logs } = stubCtx();
   apply(ctx, { pools: [{ provider: "c2a", model: "x" }] });
-  assert.ok(handlers.has("agent/request"), "应注册 agent/request");
+  assert.ok(logs.some(([, m]) => /装配 1 个候选/.test(m)));
 });
 
 test("apply 注册四个监听，agent/request 带 prepend", () => {
@@ -117,4 +120,44 @@ test("apply 遇到未知 strategy 也回落到 fewest-active", () => {
   const { ctx, logs } = stubCtx();
   apply(ctx, { strategy: "bogus", pools: [{ provider: "c2a", model: "x" }] });
   assert.ok(logs.some(([, m]) => /fewest-active/.test(m)));
+});
+
+// ---- volatile 引用解包（关键回归） ----
+
+/** 造一个 cosmokit 风格的 volatile 引用。 */
+function volatileRef(value) {
+  let current = value;
+  return {
+    get: () => current,
+    [Symbol.for("cosmokit.volatile.write")]: (next) => { current = next; },
+    __set: (next) => { current = next; },
+  };
+}
+
+test("apply 能从 volatile 引用读到配置（否则插件形同虚设）", () => {
+  const { ctx, logs } = stubCtx();
+  apply(ctx, volatileRef({ enabled: true, pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 3 }] }));
+  assert.ok(
+    logs.some(([, m]) => /装配 1 个候选/.test(m)),
+    `config 未被解包，实际日志：${JSON.stringify(logs)}`,
+  );
+});
+
+test("apply 日志标明收到的是 volatile 引用", () => {
+  const { ctx, logs } = stubCtx();
+  apply(ctx, volatileRef({ enabled: true, pools: [] }));
+  assert.ok(logs.some(([, m]) => /volatile 引用/.test(m)));
+});
+
+test("readConfig 对普通对象原样返回", () => {
+  assert.deepEqual(readConfig({ a: 1 }), { a: 1 });
+});
+
+test("readConfig 对 volatile 引用解包", () => {
+  assert.deepEqual(readConfig(volatileRef({ a: 1 })), { a: 1 });
+});
+
+test("readConfig 对 null/undefined 返回空对象", () => {
+  assert.deepEqual(readConfig(null), {});
+  assert.deepEqual(readConfig(undefined), {});
 });

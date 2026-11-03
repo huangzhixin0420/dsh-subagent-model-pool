@@ -123,11 +123,13 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 ### 实现细节
 
 - `Config` 必须带顶层 `.volatile()`。`dsh-settings` 的 `describe()` 用 `volatileForm` 过滤命名空间（`dsh-settings/lib/index.js:122-131`），不含 volatile 的 schema 根本不会出现在设置里。
+- **带 `.volatile()` 后，`apply(ctx, config)` 收到的不是普通对象，而是 cosmokit 的 volatile 引用** `{ get(), [Symbol.for("cosmokit.volatile.write")] }`（`schemastery/lib/index.mjs:480` → `cosmokit createVolatile`）。直接读 `config.pools` 永远是 `undefined`，插件会静默不装配——必须用 `config.get()` 解包。设置页保存后 `dsh-settings` 通过 `[write]` 更新该引用，所以 `get()` 每次都能读到最新值。
 - **数组字段不要走 `SettingsFormModel` 的标量 field**。它的 field 工厂只表达标量，`format` 把数组序列化成字符串后，回读时类型已经丢了。正确做法是本地草稿 + `scope.mutate([{op:"set", path:["pools"], value}])` 直接写，参照内置 `dsh-client-ui-settings-subagent` 的模型多选卡。
 - `actions()` 只暴露 `edit` / `resetField` / `discard`，**没有读取待提交队列的入口**。所以标量（策略）交给 `form.save()`，数组（池）由控制器自己 `scope.mutate`，两者分开提交。
 - `exports.inject` 必须包含 `remote` 和 `remote.session`，否则读 `ctx.remote.session.modelCatalog()` 会抛 `cannot get property "remote" without inject`，**整个客户端条目 boot 失败**（页面显示 `1 entry did not activate`）。
 - 模型目录里已不存在的候选仍要渲染（标记「已下线」），否则用户既看不到也删不掉它。
 - 候选键用 `JSON.stringify([provider, model])` 而不是 `${provider}\0${model}`：后者在任一侧自带分隔符时会碰撞。
+- 配置热更新：volatile 引用的写入无法订阅，所以在每次 `agent/request` 前比对配置指纹（`signatureOf`），变了就整体换池。设置页改完**无需重启**。
 
 ## 实测验证（2026-11-02 ~ 11-03）
 

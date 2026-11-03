@@ -58,35 +58,108 @@ function withRoute(resolved, route) {
   return { ...rest, provider: route.provider, model: route.model };
 }
 
-export function apply(ctx, config) {
-  const pools = Array.isArray(config?.pools) ? config.pools : [];
-  if (config?.enabled === false || pools.length === 0) {
-    ctx.logger?.info?.("subagent-model-pool: 未启用或模型池为空，不装配");
-    return;
+/**
+ * 读取当前配置。
+ *
+ * Config 带顶层 `.volatile()`，cordis 传给 apply 的不是普通对象，而是
+ * cosmokit 的 volatile 引用：`{ get(), [cosmokit.volatile.write] }`
+ * （schemastery/lib/index.mjs:480 → cosmokit createVolatile）。
+ * 直接读 config.pools 永远是 undefined，必须走 get()。
+ * 设置页保存后，dsh-settings 通过 [write] 更新引用，get() 即返回新值。
+ * @param {unknown} config - apply 收到的配置（可能是 volatile 引用或普通对象）。
+ * @returns {object} 解包后的配置对象。
+ */
+export function readConfig(config) {
+  if (config !== null && typeof config === "object" && typeof config.get === "function") {
+    return config.get() ?? {};
   }
+  return config ?? {};
+}
 
+/**
+ * 由配置构建模型池；未启用或池为空时返回 undefined。
+ * @param {object} config - 解包后的配置。
+ * @returns {ModelPool|undefined} 可用的池。
+ */
+function buildPool(config) {
+  const pools = Array.isArray(config?.pools) ? config.pools : [];
+  if (config?.enabled === false || pools.length === 0) return undefined;
   const strategy = STRATEGIES.includes(config?.strategy) ? config.strategy : "fewest-active";
-  const pool = new ModelPool(pools, strategy);
+  return new ModelPool(pools, strategy);
+}
+
+/**
+ * 配置指纹：用于侦测 volatile 引用是否被写入过新值。
+ *
+ * 只覆盖影响分配行为的字段，避免无关字段变化导致无谓重建。
+ * @param {object} config - 解包后的配置。
+ * @returns {string} 稳定的指纹串。
+ */
+function signatureOf(config) {
+  const pools = Array.isArray(config?.pools) ? config.pools : [];
+  return JSON.stringify([
+    config?.enabled !== false,
+    config?.strategy,
+    pools.map((item) => [item?.provider, item?.model, item?.maxConcurrent]),
+  ]);
+}
+
+export function apply(ctx, config) {
+  const initial = readConfig(config);
+  ctx.logger?.info?.(
+    `subagent-model-pool: apply 收到配置 ${JSON.stringify(initial)}（${typeof config?.get === "function" ? "volatile 引用" : "普通对象"}）`,
+  );
+
+  // 池是可变的：配置热更新时整体换掉，监听器只装一次。
+  let pool = buildPool(initial);
   let active = 0;
 
-  ctx.logger?.info?.(`subagent-model-pool: 装配 ${pools.length} 个候选，策略 ${strategy}`);
+  if (pool === undefined) {
+    ctx.logger?.info?.("subagent-model-pool: 未启用或模型池为空，不装配分配逻辑");
+  } else {
+    ctx.logger?.info?.(
+      `subagent-model-pool: 装配 ${pool.snapshot().length} 个候选，策略 ${pool.strategy}`,
+    );
+  }
+
+  // volatile 引用的写入无法订阅，所以在每次分配前比对快照，
+  // 配置变了就原地换池——设置页保存后无需重启即生效。
+  let lastSignature = signatureOf(initial);
+  const currentPool = () => {
+    const next = readConfig(config);
+    const signature = signatureOf(next);
+    if (signature === lastSignature) return pool;
+    lastSignature = signature;
+    pool = buildPool(next);
+    if (pool === undefined) {
+      ctx.logger?.info?.("subagent-model-pool: 配置变更后池为空，停止分配");
+    } else {
+      active = 0;
+      ctx.logger?.info?.(
+        `subagent-model-pool: 配置热更新，现 ${pool.snapshot().length} 个候选，策略 ${pool.strategy}`,
+      );
+    }
+    return pool;
+  };
 
   // 记录本轮的 runId：subagent/start 早于首条 prompt 提交（dsh-subagent:1865 → :1460）。
   ctx.on("subagent/start", (identity) => {
     if (identity?.id === undefined) return;
-    pool.bindRun(identity.id, identity.runId);
+    const pool_ = currentPool();
+    if (pool_ === undefined) return;
+    pool_.bindRun(identity.id, identity.runId);
   });
 
   // 正常释放：一轮 run 结束。
   ctx.on("subagent/end", (identity) => {
     if (identity?.id === undefined) return;
-    pool.release(identity.runId, identity.id);
+    pool?.release(identity.runId, identity.id);
   });
 
   // 兜底释放：agent 销毁但没等到 subagent/end。与上面幂等共存。
   ctx.on("agent/disposed", ({ agent }) => {
     if (agent?.session?.header?.origin !== "subagent") return;
-    pool.release(undefined, agent.id);
+    pool?.release(undefined, agent.id);
   });
 
   /**
@@ -98,6 +171,7 @@ export function apply(ctx, config) {
    */
   async function validate(route) {
     const key = `${route.provider}\u0000${route.model}`;
+    if (pool === undefined) return false;
     if (pool.isValidated(key)) return true;
     if (pool.isRejected(key)) return false;
     const llm = ctx.get("llm");
@@ -125,6 +199,7 @@ export function apply(ctx, config) {
    */
   async function allocateValidated(childId, runId) {
     for (;;) {
+      if (pool === undefined) return undefined;
       const route = pool.allocate(childId, runId);
       if (route === undefined) return undefined;
       if (await validate(route)) return route;
@@ -136,13 +211,17 @@ export function apply(ctx, config) {
   ctx.on(
     "agent/request",
     async (payload, next) => {
+      // 每轮请求前同步一次配置，设置页改完无需重启即生效。
+      const pool_ = currentPool();
+      if (pool_ === undefined) return next();
+
       const agent = payload?.agent;
       const verdict = isPoolableSubagent(agent);
       if (!verdict.ok) return next();
 
       const childId = agent.id;
       const persisted = agent.session?.requestHeader?.()?.config;
-      const assigned = pool.assignmentOf(childId);
+      const assigned = pool_.assignmentOf(childId);
 
       // 态二：已分配且落盘 header 与之一致 → 原样放行，不重建对象。
       if (assigned !== undefined && persisted !== undefined &&
@@ -152,7 +231,7 @@ export function apply(ctx, config) {
 
       // 态三：有 header 但不等我记录（冷恢复退回父路由）→ 重新注入。
       if (assigned !== undefined) {
-        pool.adopt(childId, pool.currentRunId(childId), assigned);
+        pool_.adopt(childId, pool_.currentRunId(childId), assigned);
         return withRoute(await next(), assigned);
       }
 
@@ -162,7 +241,7 @@ export function apply(ctx, config) {
       if (explicitRouteOf(agent, parent) !== undefined) return next();
 
       // 态一：首次分配。逐候选预检，全不行才回退父路由。
-      const runId = pool.currentRunId(childId);
+      const runId = pool_.currentRunId(childId);
       const route = await allocateValidated(childId, runId);
       if (route === undefined) {
         ctx.logger?.info?.(`subagent-model-pool: 无可用候选，${childId} 回退父路由`);
