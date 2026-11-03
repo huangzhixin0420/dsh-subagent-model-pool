@@ -21,6 +21,8 @@
       var exports = module.exports;
       Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
       var jsxRuntime = require("react/jsx-runtime");
+      var react = require("react");
+      var useState = react.useState;
       var primitives = require("@deepseek-ai/dsh-client-ui-primitives");
       var jsx = jsxRuntime.jsx;
       var jsxs = jsxRuntime.jsxs;
@@ -50,7 +52,18 @@
         ".smp-num:focus{outline:2px solid var(--dsw-alias-focus);outline-offset:1px}",
         ".smp-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;padding:10px 6px;text-align:center}",
         ".smp-summary{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;margin:0}",
-        ".smp-status{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}"
+        ".smp-status{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}",
+        ".smp-strategy{display:grid;gap:6px;margin-top:12px}",
+        ".smp-strategyRow{display:flex;align-items:center;gap:10px}",
+        ".smp-strategyBtn{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:12px;cursor:pointer}",
+        ".smp-strategyBtn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-4)}",
+        ".smp-strategyBtn:disabled{opacity:.5;cursor:not-allowed}",
+        ".smp-strategyChevron{width:12px;height:12px;color:var(--dsw-alias-label-tertiary)}",
+        ".smp-strategyItem{display:grid;gap:1px;min-width:220px}",
+        ".smp-strategyName{font-size:13px}",
+        ".smp-strategyDesc{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+        ".smp-overridden{color:var(--dsw-alias-state-warning-primary, #b8860b);font-size:11px}",
+        ".smp-reset{background:none;border:0;padding:0;color:var(--dsw-alias-brand-primary);font-size:12px;cursor:pointer}"
       ].join("");
       if (typeof document !== "undefined" && typeof document.querySelector === "function"
         && document.querySelector("style[data-subagent-model-pool-css]") === null) {
@@ -395,6 +408,87 @@
         this.form.dispose();
       };
 
+      var STRATEGY_DESC = {
+        "fewest-active": "挑当前占用数最少的候选",
+        "least-recently-used": "挑最久未被占用的候选"
+      };
+
+      /**
+       * 分配策略下拉。
+       *
+       * 只有两个合法值，用下拉而不是文本框：schema 已是 z.string()，文本框
+       * 能填进任意脏值（合法性只剩 apply 兜底）。选择即写入表单暂存，与文本
+       * 字段共用 staged/save 机制；overridden 时提供恢复默认。
+       */
+      function StrategyPicker(props) {
+        var openState = useState(false);
+        var open = openState[0];
+        var setOpen = openState[1];
+        var field = props.field || {};
+        var current = typeof field.text === "string" && field.text !== "" ? field.text : STRATEGIES[0];
+        return jsxs("div", {
+          className: "smp-strategy",
+          children: [
+            jsxs("div", {
+              className: "smp-strategyRow",
+              children: [
+                jsx("span", { className: "smp-label", children: "分配策略" }),
+                field.overridden
+                  ? jsx("span", { className: "smp-overridden", children: "已覆盖" })
+                  : null,
+                jsx(primitives.Menu, {
+                  open: open,
+                  onClose: function () { setOpen(false); },
+                  items: STRATEGIES.map(function (id) {
+                    return {
+                      id: id,
+                      label: jsxs("span", {
+                        className: "smp-strategyItem",
+                        children: [
+                          jsx("span", { className: "smp-strategyName", children: id }),
+                          jsx("span", { className: "smp-strategyDesc", children: STRATEGY_DESC[id] })
+                        ]
+                      })
+                    };
+                  }),
+                  selectedId: current,
+                  onSelect: function (id) {
+                    setOpen(false);
+                    props.onEdit("strategy", id);
+                  },
+                  align: "start",
+                  portal: true,
+                  anchor: jsxs("button", {
+                    type: "button",
+                    id: "smp-strategy",
+                    className: "smp-strategyBtn",
+                    "aria-haspopup": "menu",
+                    "aria-expanded": open,
+                    "data-smp-strategy": current,
+                    disabled: props.disabled,
+                    onClick: function () { setOpen(function (v) { return !v; }); },
+                    children: [
+                      jsx("span", { children: current }),
+                      jsx(primitives.IconChevronDownOutlineRegular, { className: "smp-strategyChevron" })
+                    ]
+                  })
+                }),
+                field.overridden
+                  ? jsx("button", {
+                    type: "button",
+                    className: "smp-reset",
+                    disabled: props.disabled,
+                    onClick: function () { props.onReset("strategy"); },
+                    children: "恢复默认"
+                  })
+                  : null
+              ]
+            }),
+            jsx("p", { className: "smp-hint", children: "fewest-active：挑当前占用数最少的候选；least-recently-used：挑最久未被占用的候选。" })
+          ]
+        });
+      }
+
       function ModelPoolSettings(props) {
         var state = props.useModelPool(function (snapshot) { return snapshot; });
         var disabled = !state.writable || state.saving;
@@ -487,17 +581,11 @@
               })
             ]
           }, "enabled"),
-          jsx(primitives.SettingsValueField, {
-            id: "smp-strategy",
-            label: "分配策略",
-            hint: "fewest-active：挑当前占用数最少的候选；least-recently-used：挑最久未被占用的候选。",
-            overriddenLabel: "已覆盖",
-            resetLabel: "恢复默认",
-            invalidLabel: "请填 fewest-active 或 least-recently-used。",
+          jsx(StrategyPicker, {
+            field: state.strategy,
             disabled: disabled,
-            ...state.strategy,
-            onEdit: function (text) { props.edit("strategy", text); },
-            onReset: function () { props.resetField("strategy"); }
+            onEdit: props.edit,
+            onReset: props.resetField
           }, "strategy"),
           jsxs("div", {
             className: "smp-control",
