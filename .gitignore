@@ -1,0 +1,11 @@
+# 依赖：本工程用软链指向 dsh 自带的 cordis / schemastery，
+# 克隆后需按 README 自行建链，不提交。
+node_modules/
+
+# 调试产物：截图、日志、临时脚本。
+artifacts/
+
+# 系统与编辑器
+.DS_Store
+*.log
+*.swp

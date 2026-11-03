@@ -1,0 +1,14 @@
+# 标准 DSH bundle 入口；安装器据此挂载 Cordis 插件。
+- insert:
+    - id: subagent-model-pool
+      name: dsh-subagent-model-pool
+      config:
+        enabled: true
+        strategy: fewest-active
+        pools:
+          - provider: c2a
+            model: subagent
+            maxConcurrent: 3
+          - provider: c2a
+            model: free
+            maxConcurrent: 3

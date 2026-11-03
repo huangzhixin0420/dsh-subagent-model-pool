@@ -1,0 +1,172 @@
+// 策略与池状态的单元测试：不启动 DSH，纯逻辑验证。
+import test from "node:test";
+import assert from "node:assert/strict";
+import { ModelPool, DEFAULT_MAX_CONCURRENT } from "../lib/pool.js";
+import { selectCandidate, STRATEGIES } from "../lib/strategy.js";
+
+const POOLS = [
+  { provider: "c2a", model: "subagent" },
+  { provider: "c2a", model: "free" },
+];
+
+test("默认并发上限是 3", () => {
+  assert.equal(DEFAULT_MAX_CONCURRENT, 3);
+  const pool = new ModelPool(POOLS, "fewest-active");
+  assert.deepEqual(
+    pool.snapshot().map((entry) => entry.maxConcurrent),
+    [3, 3],
+  );
+});
+
+test("配置可覆盖单条上限", () => {
+  const pool = new ModelPool(
+    [{ provider: "c2a", model: "subagent", maxConcurrent: 1 }],
+    "fewest-active",
+  );
+  assert.equal(pool.snapshot()[0].maxConcurrent, 1);
+});
+
+test("fewest-active：按占用数最少分散负载，不平铺填满单模型", () => {
+  const pool = new ModelPool(POOLS, "fewest-active");
+  // 三个候选轮流铺开：两个模型各自的 active 交替为 0/0 → 0/1 → 1/1 → 1/2 …
+  assert.equal(pool.allocate("child-a", "run-a").model, "subagent");
+  assert.equal(pool.allocate("child-b", "run-b").model, "free");
+  assert.equal(pool.allocate("child-c", "run-c").model, "subagent");
+  assert.equal(pool.allocate("child-d", "run-d").model, "free");
+  assert.deepEqual(pool.snapshot().map((entry) => entry.active), [2, 2]);
+});
+
+test("fewest-active：某模型占满后其余全落到另一个", () => {
+  const pool = new ModelPool(
+    [
+      { provider: "c2a", model: "subagent", maxConcurrent: 1 },
+      { provider: "c2a", model: "free", maxConcurrent: 5 },
+    ],
+    "fewest-active",
+  );
+  assert.equal(pool.allocate("child-a", "run-a").model, "subagent");
+  // subagent 只剩 0 个名额，后续三个全走 free。
+  assert.equal(pool.allocate("child-b", "run-b").model, "free");
+  assert.equal(pool.allocate("child-c", "run-c").model, "free");
+  assert.equal(pool.allocate("child-d", "run-d").model, "free");
+  assert.deepEqual(pool.snapshot().map((entry) => entry.active), [1, 3]);
+});
+
+test("占用可被释放后重新分配到同一模型", () => {
+  const pool = new ModelPool(
+    [{ provider: "c2a", model: "subagent", maxConcurrent: 2 }],
+    "fewest-active",
+  );
+  pool.allocate("child-a", "run-a");
+  pool.allocate("child-b", "run-b");
+  assert.equal(pool.allocate("child-c", "run-c"), undefined);
+
+  pool.release("run-a", "child-a");
+  assert.equal(pool.snapshot()[0].active, 1);
+  // 释放出的名额应立刻可用。
+  assert.equal(pool.allocate("child-e", "run-e").model, "subagent");
+  assert.equal(pool.snapshot()[0].active, 2);
+});
+
+test("释放按 runId 幂等，重复调用不会重复减", () => {
+  const pool = new ModelPool(POOLS, "fewest-active");
+  pool.allocate("child-a", "run-a");
+  assert.equal(pool.release("run-a", "child-a"), true);
+  assert.equal(pool.snapshot()[0].active, 0);
+  assert.equal(pool.release("run-a", "child-a"), false);
+  assert.equal(pool.snapshot()[0].active, 0);
+});
+
+test("冷恢复开新 run，占两个名额且逐个释放", () => {
+  const pool = new ModelPool(
+    [{ provider: "c2a", model: "subagent", maxConcurrent: 5 }],
+    "fewest-active",
+  );
+  pool.allocate("child-a", "run-1");
+  // 冷恢复：同一 childId，新 runId。
+  pool.allocate("child-a", "run-2");
+  assert.equal(pool.snapshot()[0].active, 2);
+
+  pool.release("run-1", "child-a");
+  assert.equal(pool.snapshot()[0].active, 1);
+  pool.release("run-2", "child-a");
+  assert.equal(pool.snapshot()[0].active, 0);
+});
+
+test("已分配的子代理再次 allocate 返回同一路由", () => {
+  const pool = new ModelPool(POOLS, "fewest-active");
+  const first = pool.allocate("child-a", "run-1");
+  const again = pool.allocate("child-a", "run-2");
+  assert.deepEqual(again, first);
+});
+
+test("全部占满时返回 undefined（回退父路由）", () => {
+  const pool = new ModelPool(
+    [{ provider: "c2a", model: "subagent", maxConcurrent: 1 }],
+    "fewest-active",
+  );
+  assert.notEqual(pool.allocate("child-a", "run-a"), undefined);
+  assert.equal(pool.allocate("child-b", "run-b"), undefined);
+});
+
+test("least-recently-used：优先给从未被占用过的候选", () => {
+  const pool = new ModelPool(POOLS, "least-recently-used");
+  const first = pool.allocate("child-a", "run-a");
+  pool.release("run-a", "child-a");
+  // first 刚释放过（lastReleasedAt 有值），第二个候选从未释放 → 选第二个。
+  const second = pool.allocate("child-b", "run-b");
+  assert.equal(first.model, "subagent");
+  assert.equal(second.model, "free");
+});
+
+test("least-recently-used：都已释放过时选释放更早的", () => {
+  const pool = new ModelPool(POOLS, "least-recently-used");
+  pool.allocate("child-a", "run-a");
+  pool.release("run-a", "child-a"); // subagent 先释放
+  pool.allocate("child-b", "run-b"); // 落到 free
+  assert.equal(pool.assignmentOf("child-b").model, "free");
+  pool.release("run-b", "child-b"); // free 后释放
+  // 两者都释放过，subagent 的 lastReleasedAt 更早 → 选 subagent。
+  assert.equal(pool.allocate("child-c", "run-c").model, "subagent");
+});
+
+test("预检失败的候选被排除，不再参与选择", () => {
+  const pool = new ModelPool(POOLS, "fewest-active");
+  pool.markRejected("c2a\u0000subagent");
+  assert.equal(pool.allocate("child-a", "run-a").model, "free");
+});
+
+test("全部候选预检失败时 allRejected 为真", () => {
+  const pool = new ModelPool(POOLS, "fewest-active");
+  assert.equal(pool.allRejected(), false);
+  pool.markRejected("c2a\u0000subagent");
+  pool.markRejected("c2a\u0000free");
+  assert.equal(pool.allRejected(), true);
+});
+
+test("discard 回滚 assignment 与占用", () => {
+  const pool = new ModelPool(POOLS, "fewest-active");
+  pool.allocate("child-a", "run-a");
+  assert.equal(pool.snapshot()[0].active, 1);
+  pool.discard("child-a", "run-a");
+  assert.equal(pool.snapshot()[0].active, 0);
+  assert.equal(pool.assignmentOf("child-a"), undefined);
+});
+
+test("策略名必须是受支持的两种之一", () => {
+  assert.deepEqual(STRATEGIES, ["least-recently-used", "fewest-active"]);
+});
+
+test("selectCandidate 空数组返回 undefined", () => {
+  assert.equal(selectCandidate("fewest-active", []), undefined);
+  assert.equal(selectCandidate("least-recently-used", []), undefined);
+});
+
+test("tiebreak 按配置顺序，保证并发首次派发不打散", () => {
+  const candidates = [
+    { index: 1, provider: "c2a", model: "b", active: 0, lastReleasedAt: undefined },
+    { index: 0, provider: "c2a", model: "a", active: 0, lastReleasedAt: undefined },
+  ];
+  assert.equal(selectCandidate("fewest-active", candidates).model, "a");
+  assert.equal(selectCandidate("least-recently-used", candidates).model, "a");
+});
