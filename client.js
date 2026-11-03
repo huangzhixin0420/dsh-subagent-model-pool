@@ -11,7 +11,7 @@
 // 参考内置 dsh-client-ui-settings-subagent 的模型多选卡。
 (function () {
   var SETTINGS_NS = "subagent-model-pool";
-  var STRATEGIES = ["fewest-active", "least-recently-used"];
+  var STRATEGIES = ["fewest-active", "least-recently-used", "strict-priority"];
   var DEFAULT_MAX_CONCURRENT = 3;
 
   window.__ModuleLoader__.load({
