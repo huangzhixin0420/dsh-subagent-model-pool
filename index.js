@@ -17,6 +17,12 @@
 
 import z from "@deepseek-ai/schemastery";
 import { ModelPool, DEFAULT_MAX_CONCURRENT } from "./lib/pool.js";
+
+/** 单次探测的超时毫秒数。 */
+const PROBE_TIMEOUT_MS = 10_000;
+
+/** 探测请求的最大输出 token——够收到首个 chunk 即可。 */
+const PROBE_MAX_TOKENS = 8;
 import { STRATEGIES } from "./lib/strategy.js";
 import { isPoolableSubagent, explicitRouteOf } from "./lib/identity.js";
 
@@ -115,6 +121,9 @@ export function apply(ctx, config) {
   let pool = buildPool(initial);
   let active = 0;
 
+  // in-flight 探测去重：key → Promise<boolean>。探测完成后自行移除。
+  const probing = new Map();
+
   if (pool === undefined) {
     ctx.logger?.info?.("subagent-model-pool: 未启用或模型池为空，不装配分配逻辑");
   } else {
@@ -170,6 +179,36 @@ export function apply(ctx, config) {
    * @param {{provider: string, model: string}} route - 待校验路由。
    * @returns {Promise<boolean>} 是否可用。
    */
+  /**
+   * 对候选发一条最小真实请求，验证端到端可用。
+   *
+   * prepareCall 会复用 agent 层该 provider 的全部配置（baseURL/凭据都在
+   * adapter 内部解析，插件不经手凭据）。流式拿到首个 chunk 即判存活，
+   * 不等完整回复——探测目的只是「这条路由现在能不能跑」。
+   * @param {{provider: string, model: string}} route - 待探测路由。
+   * @param {object} llm - dsh-llm 服务。
+   * @returns {Promise<boolean>} 是否可用。
+   */
+  async function probeRoute(route, llm) {
+    const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS);
+    const call = await llm.prepareCall({
+      provider: route.provider,
+      model: route.model,
+      maxTokens: PROBE_MAX_TOKENS,
+    }, signal);
+    const options = {
+      ...call.config,
+      messages: [{ role: "user", content: "ping" }],
+      purpose: "subagent-model-pool-probe",
+      signal,
+    };
+    for await (const chunk of call.stream(options)) {
+      void chunk;
+      break; // 首块即存活
+    }
+    return true;
+  }
+
   async function validate(route) {
     const key = `${route.provider}\u0000${route.model}`;
     if (pool === undefined) return false;
@@ -177,17 +216,24 @@ export function apply(ctx, config) {
     if (pool.isRejected(key)) return false;
     const llm = ctx.get("llm");
     if (llm === undefined) return false;
-    try {
-      await llm.resolveModelInfo(route.provider, route.model);
-      pool.markValidated(key);
-      return true;
-    } catch (error) {
-      pool.markRejected(key);
-      ctx.logger?.warn?.(
-        `subagent-model-pool: ${route.provider}/${route.model} 预检失败，回退父路由：${error?.message ?? String(error)}`,
-      );
-      return false;
+    // 并发去重：N 个子代理同时 spawn 只对同一候选发一次探测。
+    let inflight = probing.get(key);
+    if (inflight === undefined) {
+      inflight = probeRoute(route, llm)
+        .then((ok) => {
+          if (ok) pool.markValidated(key);
+          return ok;
+        }, (error) => {
+          pool.markRejected(key);
+          ctx.logger?.warn?.(
+            `subagent-model-pool: ${route.provider}/${route.model} 探测失败，回退父路由：${error?.message ?? String(error)}`,
+          );
+          return false;
+        })
+        .finally(() => probing.delete(key));
+      probing.set(key, inflight);
     }
+    return inflight;
   }
 
   /**

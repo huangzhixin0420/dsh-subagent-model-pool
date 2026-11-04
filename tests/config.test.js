@@ -9,6 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Config, name, inject, apply, readConfig } from "../index.js";
+import { ModelPool, VALIDATED_TTL_MS, REJECTED_TTL_MS } from "../lib/pool.js";
 
 /** 按 cordis 的方式校验配置（resolveConfig 用 ~standard）。 */
 function validate(input) {
@@ -61,23 +62,43 @@ test("maxConcurrent 非整数被拒", () => {
 function stubCtx() {
   const handlers = new Map();
   const logs = [];
-  return {
+  const probeCalls = [];
+  const probeState = { impl: () => true };
+  const scope = {
     handlers,
     logs,
+    probeCalls,
+    set probeImpl(fn) { probeState.impl = fn; },
     ctx: {
       logger: {
         info: (m) => logs.push(["info", m]),
         warn: (m) => logs.push(["warn", m]),
       },
       on: (event, fn, opts) => { handlers.set(event, { fn, opts }); },
-      get: (svc) =>
-        svc === "llm"
-          ? { resolveModelInfo: async () => ({ id: "ok" }) }
-          : svc === "agents"
-            ? { get: () => undefined }
-            : undefined,
+      // 可编程探测桩：probeImpl 决定 prepareCall 的行为，probeCalls 记录每次探测。
+      get: (svc) => {
+        if (svc === "llm") {
+          return {
+            prepareCall: async (config) => {
+              probeCalls.push(`${config.provider}/${config.model}`);
+              if (!probeState.impl(config)) {
+                throw new Error("探测桩：模拟上游不可达");
+              }
+              return {
+                config: { provider: config.provider, model: config.model },
+                stream: async function* () {
+                  yield { type: "text" };
+                },
+              };
+            },
+          };
+        }
+        if (svc === "agents") return { get: () => undefined };
+        return undefined;
+      },
     },
   };
+  return scope;
 }
 
 test("apply 始终注册监听（池空时在回调里放行，便于配置热更新）", () => {
@@ -122,9 +143,6 @@ test("apply 遇到未知 strategy 也回落到 fewest-active", () => {
   assert.ok(logs.some(([, m]) => /fewest-active/.test(m)));
 });
 
-// ---- volatile 引用解包（关键回归） ----
-
-/** 造一个 cosmokit 风格的 volatile 引用。 */
 function volatileRef(value) {
   let current = value;
   return {
@@ -160,4 +178,112 @@ test("readConfig 对 volatile 引用解包", () => {
 test("readConfig 对 null/undefined 返回空对象", () => {
   assert.deepEqual(readConfig(null), {});
   assert.deepEqual(readConfig(undefined), {});
+});
+// ---- 真实请求探测（v0.3.0）----
+
+/** 构造可编程 llm 桩：记录 prepareCall 次数，按模型决定探测成败。 */
+function probeStubCtx({ failModels = [], delay = 0 } = {}) {
+  const handlers = new Map();
+  const logs = [];
+  let prepareCalls = 0;
+  const inflightSeen = [];
+  const ctx = {
+    logger: {
+      info: (m) => logs.push(["info", m]),
+      warn: (m) => logs.push(["warn", m]),
+    },
+    on: (event, fn, opts) => { handlers.set(event, { fn, opts }); },
+    get: (svc) =>
+      svc === "llm"
+        ? {
+            async prepareCall(config) {
+              prepareCalls += 1;
+              inflightSeen.push(config.model);
+              if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+              if (failModels.includes(config.model)) {
+                throw new Error("upstream 503");
+              }
+              return {
+                config: { provider: config.provider, model: config.model },
+                async *stream() { yield { type: "text" }; },
+              };
+            },
+          }
+        : svc === "agents"
+          ? { get: () => undefined }
+          : undefined,
+  };
+  return {
+    ctx, handlers, logs,
+    get prepareCalls() { return prepareCalls; },
+  };
+}
+
+/** 触发一次 agent/request 分配，返回注入的路由。 */
+async function allocate(ctx, handlers, childId) {
+  const agent = {
+    id: childId,
+    session: {
+      header: { origin: "subagent", parentSession: "parent-x" },
+      requestHeader: () => undefined,
+    },
+  };
+  // 真实口径：agent/request waterfall 的流动对象是顶层 {provider, model}
+  // （dsh-agent/lib/index.js:1191 proposedConfig.provider 直读顶层）。
+  const result = await handlers.get("agent/request").fn(
+    { agent },
+    async () => ({ provider: "c2a", model: "parent" }),
+  );
+  return { provider: result?.provider, model: result?.model };
+}
+
+test("探测通过 → 分配该候选", async () => {
+  const { ctx, handlers } = probeStubCtx();
+  apply(ctx, { pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 1 }] });
+  const routed = await allocate(ctx, handlers, "child-1");
+  assert.deepEqual(routed, { provider: "c2a", model: "subagent" });
+});
+
+test("探测失败 → 拉黑并换下一候选，全败回退父路由", async () => {
+  const { ctx, handlers } = probeStubCtx({ failModels: ["subagent", "free"] });
+  apply(ctx, {
+    pools: [
+      { provider: "c2a", model: "subagent", maxConcurrent: 1 },
+      { provider: "c2a", model: "free", maxConcurrent: 1 },
+    ],
+  });
+  const routed = await allocate(ctx, handlers, "child-1");
+  assert.deepEqual(routed, { provider: "c2a", model: "parent" }, "全败应回退父路由");
+});
+
+test("并发分配同一候选只探测一次（in-flight 去重）", async () => {
+  const stub = probeStubCtx({ delay: 30 });
+  const { ctx, handlers } = stub;
+  apply(ctx, { pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 3 }] });
+  await Promise.all([
+    allocate(ctx, handlers, "child-a"),
+    allocate(ctx, handlers, "child-b"),
+    allocate(ctx, handlers, "child-c"),
+  ]);
+  assert.equal(stub.prepareCalls, 1, "三个并发分配应只发一次探测");
+});
+
+test("探测结果 60s 后过期可重探（REJECTED_TTL）", async (t) => {
+  const { REJECTED_TTL_MS } = await import("../lib/pool.js");
+  const { ModelPool } = await import("../lib/pool.js");
+  const pool = new ModelPool([{ provider: "c2a", model: "x" }], "fewest-active");
+  pool.markRejected("c2a\0x");
+  assert.equal(pool.isRejected("c2a\0x"), true);
+  // 把时间戳拨回 TTL 之前
+  t.mock.timers.enable({ now: Date.now() + REJECTED_TTL_MS + 1000 });
+  assert.equal(pool.isRejected("c2a\0x"), false, "过期后应允许重探");
+});
+
+test("探测通过 5min 后过期需重探（VALIDATED_TTL）", async (t) => {
+  const { VALIDATED_TTL_MS, ModelPool } = await import("../lib/pool.js");
+  const pool = new ModelPool([{ provider: "c2a", model: "x" }], "fewest-active");
+  pool.markValidated("c2a\0x");
+  assert.equal(pool.isValidated("c2a\0x"), true);
+  t.mock.timers.enable({ now: Date.now() + VALIDATED_TTL_MS + 1000 });
+  assert.equal(pool.isValidated("c2a\0x"), false, "过期后应重新探测");
 });

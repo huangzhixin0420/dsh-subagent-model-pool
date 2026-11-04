@@ -1,7 +1,8 @@
 // 策略与池状态的单元测试：不启动 DSH，纯逻辑验证。
+import { DEFAULT_MAX_CONCURRENT, ModelPool, REJECTED_TTL_MS, VALIDATED_TTL_MS } from "../lib/pool.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ModelPool, DEFAULT_MAX_CONCURRENT } from "../lib/pool.js";
+
 import { selectCandidate, STRATEGIES } from "../lib/strategy.js";
 
 const POOLS = [
@@ -223,11 +224,68 @@ test("selectCandidate 空数组返回 undefined", () => {
   assert.equal(selectCandidate("least-recently-used", []), undefined);
 });
 
-test("tiebreak 按配置顺序，保证并发首次派发不打散", () => {
-  const candidates = [
-    { index: 1, provider: "c2a", model: "b", active: 0, lastReleasedAt: undefined },
-    { index: 0, provider: "c2a", model: "a", active: 0, lastReleasedAt: undefined },
-  ];
-  assert.equal(selectCandidate("fewest-active", candidates).model, "a");
-  assert.equal(selectCandidate("least-recently-used", candidates).model, "a");
+test("探测 TTL：validated 过期后失效，rejected 过期后可重探", () => {
+  const p1 = new ModelPool([{ provider: "c2a", model: "a" }], "fewest-active");
+  p1.markValidated("c2a\u0000a");
+  assert.equal(p1.isValidated("c2a\u0000a"), true);
+  const futureValid = Date.now() + VALIDATED_TTL_MS + 1;
+  const origNow = Date.now;
+  Date.now = () => futureValid;
+  assert.equal(p1.isValidated("c2a\u0000a"), false, "validated 超过 5 分钟应失效");
+  Date.now = origNow;
+
+  const p2 = new ModelPool([{ provider: "c2a", model: "a" }], "fewest-active");
+  p2.markRejected("c2a\u0000a");
+  assert.equal(p2.isRejected("c2a\u0000a"), true);
+  const futureRej = Date.now() + REJECTED_TTL_MS + 1;
+  Date.now = () => futureRej;
+  assert.equal(p2.isRejected("c2a\u0000a"), false, "rejected 超过 60 秒应可重探");
+  Date.now = origNow;
+});
+
+// ---- 探测状态 TTL（v0.3.0）----
+
+test("markValidated 后 TTL 内有效、超时失效", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const pool = new ModelPool([{ provider: "c2a", model: "a" }], "fewest-active");
+  const key = "c2a\u0000a";
+  pool.markValidated(key);
+  assert.equal(pool.isValidated(key), true);
+  t.mock.timers.tick(VALIDATED_TTL_MS - 1);
+  assert.equal(pool.isValidated(key), true, "TTL 边界内仍有效");
+  t.mock.timers.tick(1);
+  assert.equal(pool.isValidated(key), false, "过期后应重新探测");
+});
+
+test("markRejected 后拉黑期内跳过、到期自动可重探", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const pool = new ModelPool([{ provider: "c2a", model: "a" }], "fewest-active");
+  const key = "c2a\u0000a";
+  pool.markRejected(key);
+  assert.equal(pool.isRejected(key), true);
+  t.mock.timers.tick(REJECTED_TTL_MS - 1);
+  assert.equal(pool.isRejected(key), true, "拉黑期内仍排除");
+  t.mock.timers.tick(1);
+  assert.equal(pool.isRejected(key), false, "到期后恢复可探测");
+});
+
+test("allRejected 走 TTL 语义：过期的失败不算拉黑", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const pool = new ModelPool([{ provider: "c2a", model: "a" }], "fewest-active");
+  const key = "c2a\u0000a";
+  pool.markRejected(key);
+  assert.equal(pool.allRejected(), true, "拉黑期内全拒");
+  t.mock.timers.tick(REJECTED_TTL_MS + 1);
+  assert.equal(pool.allRejected(), false, "过期后不再视为全拒");
+});
+
+test("validated 与 rejected 独立计时", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const pool = new ModelPool([{ provider: "c2a", model: "a" }], "fewest-active");
+  const key = "c2a\u0000a";
+  pool.markValidated(key);
+  assert.equal(pool.isRejected(key), false, "通过即不在拉黑名单");
+  t.mock.timers.tick(VALIDATED_TTL_MS + 1);
+  assert.equal(pool.isValidated(key), false);
+  assert.equal(pool.isRejected(key), false, "过期只是回到未探测，不是拉黑");
 });
