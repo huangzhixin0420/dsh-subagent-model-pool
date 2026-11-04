@@ -1,6 +1,6 @@
 {
   "name": "dsh-subagent-model-pool",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "子代理模型池：按并发占用在多个候选模型间分配，同一子代理派发后模型锁定。",
   "type": "module",
   "main": "index.js",
