@@ -380,18 +380,33 @@
         this.failed = false;
         this.store.set(this.projection());
 
-        var writing = poolsDirty
-          ? Promise.resolve(this.scope.mutate([{
+        // 顺序关键：必须先 form.save()（标量 staged）再 scope.mutate（数组）。
+        // SettingsFormModel.save 显式携带创建时捕获的 baseline.revision 提交；
+        // 若先 mutate 数组，namespace revision 已递增，form.save 必撞
+        // settings/conflict 乐观锁——「同时改策略+权重再保存」必现。
+        // form.save 成功后 scope 快照随之刷新，随后的 mutate 用新 revision。
+        var formWriting = this.form.shell().dirty === true
+          ? Promise.resolve(this.form.save()).then(function () {
+            return self.form.shell().failed !== true;
+          }, function () {
+            return false;
+          })
+          : Promise.resolve(true);
+
+        var writing = formWriting.then(function (formOk) {
+          if (!formOk) return false;
+          if (!poolsDirty) return true;
+          return Promise.resolve(self.scope.mutate([{
             op: "set",
             path: ["pools"],
-            value: this.desiredPools().map(function (item) {
+            value: self.desiredPools().map(function (item) {
               return {
                 provider: item.provider, model: item.model,
                 maxConcurrent: item.maxConcurrent, weight: item.weight
               };
             })
-          }])).then(function () { return true; }, function () { return false; })
-          : Promise.resolve(true);
+          }])).then(function () { return true; }, function () { return false; });
+        });
 
         writing.then(function (ok) {
           if (!ok) {
@@ -401,14 +416,6 @@
             return undefined;
           }
           if (poolsDirty) self.draft = undefined;
-          // 策略字段由表单模型负责提交与失败判定。
-          if (self.form.shell().dirty === true) {
-            return Promise.resolve(self.form.save()).then(function () {
-              return self.form.shell().failed !== true;
-            }, function () {
-              return false;
-            });
-          }
           return true;
         }).then(function (settled) {
           if (settled === undefined) return;
