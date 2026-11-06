@@ -774,6 +774,7 @@
         ".smpv-dot{width:7px;height:7px;border-radius:2px;display:inline-block;flex:none}",
         ".smpv-route{display:grid;grid-template-columns:7px minmax(112px,160px) 1fr auto;gap:8px;align-items:center;padding:3px 0}",
         ".smpv-routeLabel{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+        ".smpv-table .smpv-routeLabel{font-family:inherit;font-size:11px;color:var(--dsw-alias-label-secondary)}",
         ".smpv-routeLabel b{font-weight:600}",
         ".smpv-routeLabel span{color:var(--dsw-alias-label-tertiary)}",
         ".smpv-bar{height:8px;border-radius:2px;background:var(--dsw-alias-bg-layer-2);display:flex;overflow:hidden}",
@@ -791,13 +792,17 @@
         ".smpv-state.hot{color:var(--dsw-alias-state-warning-primary,#c77d0a)}",
         ".smpv-state.down{color:var(--dsw-alias-state-error-primary,#d5393a)}",
         ".smpv-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}",
-        ".smpv-table th{color:var(--dsw-alias-label-tertiary);font-weight:500;font-size:11px;line-height:16px;text-align:left;padding:3px 6px;border-bottom:.5px solid var(--dsw-alias-border-l2);vertical-align:bottom}",
-        ".smpv-table td{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:4px 6px;font-size:11px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-        ".smpv-table tr.child td{color:var(--dsw-alias-label-secondary);padding-left:22px}",
-        ".smpv-table tr.child td:first-child{box-shadow:inset 2px 0 0 var(--dsw-alias-border-l1)}",
-        ".smpv-sessionMark{display:inline-block;width:12px;color:var(--dsw-alias-label-tertiary)}",
-        ".smpv-kind{color:var(--dsw-alias-label-tertiary)}",
-        ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right}",
+        ".smpv-table thead th{color:var(--dsw-alias-label-tertiary);font-weight:500;font-size:11px;line-height:16px;text-align:left;padding:0 8px 4px;border-bottom:.5px solid var(--dsw-alias-border-l2);vertical-align:bottom;white-space:nowrap}",
+        ".smpv-table thead th.smpv-num{text-align:right}",
+        ".smpv-table tbody td{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:4px 8px;font-size:11px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}",
+        ".smpv-table tbody tr:last-child td{border-bottom:0}",
+        // 父子关系用左侧竖线表达，不用 padding 硬推——标题列宽度不受影响。
+        ".smpv-table tr.child td:first-child{box-shadow:inset 2px 0 0 var(--dsw-alias-border-l1);padding-left:18px}",
+        ".smpv-table tr.child td{color:var(--dsw-alias-label-secondary)}",
+        ".smpv-table tr.parent td:first-child{font-weight:500}",
+        ".smpv-sessionTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+        ".smpv-kind{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px}",
+        ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px}",
         ".smpv-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;padding:12px 6px;text-align:center}",
         ".smpv-err{color:var(--dsw-alias-state-error-primary,#d5393a);font-size:12px;line-height:18px;padding:12px 6px}",
         ".smpv-foot{display:flex;gap:12px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}"
@@ -1078,14 +1083,14 @@
                   jsx("thead", {
                     children: jsx("tr", {
                       children: [
-                        jsx("th", { style: { width: "30%" }, children: "会话" }),
+                        jsx("th", { style: { width: "32%" }, children: "会话" }),
                         jsx("th", { style: { width: "7%" }, children: "类型" }),
-                        jsx("th", { style: { width: "23%" }, children: "路由" }),
-                        jsx("th", { className: "smpv-num", children: "请求" }),
-                        jsx("th", { className: "smpv-num", children: "输入" }),
-                        jsx("th", { className: "smpv-num", children: "输出" }),
-                        jsx("th", { className: "smpv-num", children: "缓存读" }),
-                        jsx("th", { className: "smpv-num", children: "缓存写" })
+                        jsx("th", { style: { width: "17%" }, children: "路由" }),
+                        jsx("th", { className: "smpv-num", style: { width: "7%" }, children: "请求" }),
+                        jsx("th", { className: "smpv-num", style: { width: "8%" }, children: "输入" }),
+                        jsx("th", { className: "smpv-num", style: { width: "8%" }, children: "输出" }),
+                        jsx("th", { className: "smpv-num", style: { width: "11%" }, children: "缓存读" }),
+                        jsx("th", { className: "smpv-num", style: { width: "11%" }, children: "缓存写" })
                       ]
                     })
                   }),
@@ -1096,20 +1101,19 @@
                         return route.model + "(" + route.provider + ")";
                       }).join(" ");
                       var isSub = session.isSubagent === true;
+                      var title = session.title !== undefined && session.title !== null
+                        ? session.title
+                        : session.sessionId;
                       return jsx("tr", {
                         key: row.kind + ":" + session.sessionId,
                         className: row.kind,
                         children: [
                           jsx("td", {
-                            title: session.sessionId,
-                            children: [
-                              jsx("span", { className: "smpv-sessionMark" },
-                                row.kind === "child" ? "└" : ""
-                              ),
-                              session.title !== undefined && session.title !== null
-                                ? session.title
-                                : session.sessionId
-                            ]
+                            title: title + " · " + session.sessionId,
+                            children: jsx("span", {
+                              className: "smpv-sessionTitle",
+                              children: title
+                            })
                           }),
                           jsx("td", {
                             className: "smpv-kind",
