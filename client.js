@@ -1415,6 +1415,12 @@
             var listener = function () { setState(source.getSnapshot()); };
             return source.subscribe(listener);
           }, []);
+          // 每次进入面板都重新拉一次：面板切换会卸载重建组件，所以这个
+          // mount key 就是「用户又进来了」。不刷新的话看到的是上次的旧数据
+          // （账本是进程序内累计，离开期间一直在变）。
+          useEffect(function () {
+            source.load();
+          }, []);
           var modeState = useState("tokens");
           return {
             snapshot: state[0].snapshot,
@@ -1430,10 +1436,8 @@
 
       function registerStats(ctx) {
         var source = createStatsSource();
-        ctx.effect(function () {
-          source.load();
-          return function () {};
-        }, "subagent-model-pool: 统计源");
+        // 不在这里预加载：面板组件挂载时才拉（见 useStats 的 mount effect），
+        // 免得用户根本没打开统计页也白发一次请求。
         var useStats = createStatsHook(source);
         ctx.effect(function () {
           return ctx.slots.inject("main", function () {
