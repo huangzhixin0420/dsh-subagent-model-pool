@@ -134,14 +134,14 @@ test("主代理与子代理的会话明细分开记", async () => {
     },
   });
   const snapshot = await readSnapshot(routes);
-  assert.equal(snapshot.sessions.length, 2);
-  const main = snapshot.sessions.find((s) => s.sessionId === "main-1");
+  // 只剩子代理会话：主代理的 1000 input 不进池的账。
+  assert.equal(snapshot.sessions.length, 1);
+  assert.equal(snapshot.sessions.find((s) => s.sessionId === "main-1"), undefined);
   const child = snapshot.sessions.find((s) => s.sessionId === "child-1");
-  assert.equal(main.isSubagent, false);
   assert.equal(child.isSubagent, true);
   assert.equal(child.parentSessionId, "main-1");
-  assert.equal(main.tokens.inputTokens, 1000);
   assert.equal(child.tokens.inputTokens, 200);
+  assert.equal(snapshot.totals.tokens.inputTokens, 200);
 });
 
 test("assistant/attempt 的 usage 从 stream 的最后一个 usage chunk 取", async () => {
@@ -201,7 +201,28 @@ test("usage 缺失的事件不计入", async () => {
 
 // ---- 会话标题 ----
 
-test("session/title 事件把标题记到会话上", async () => {
+test("session/title 事件把标题记到子代理会话上", async () => {
+  const { ctx, handlers, routes } = stubCtx();
+  apply(ctx, { enabled: true, pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 3 }] });
+  emit(handlers, subagentSession("child-1", "main-1"), {
+    type: "session/title",
+    data: { title: "请回答：6+6等于几？", messageSeqs: [], source: "provider" },
+  });
+  emit(handlers, subagentSession("child-1", "main-1"), {
+    type: "assistant/message",
+    data: {
+      turn: 1,
+      step: 1,
+      usage: { inputTokens: 100, outputTokens: 10 },
+      message: { source: { kind: "model", provider: "c2a", model: "subagent" } },
+    },
+  });
+  const snapshot = await readSnapshot(routes);
+  const child = snapshot.sessions.find((s) => s.sessionId === "child-1");
+  assert.equal(child.title, "请回答：6+6等于几？");
+});
+
+test("主代理会话不进账：它的 title 与 usage 都不出现在统计里", async () => {
   const { ctx, handlers, routes } = stubCtx();
   apply(ctx, { enabled: true, pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 3 }] });
   emit(handlers, mainSession(), {
@@ -218,44 +239,50 @@ test("session/title 事件把标题记到会话上", async () => {
     },
   });
   const snapshot = await readSnapshot(routes);
-  const main = snapshot.sessions.find((s) => s.sessionId === "main-1");
-  assert.equal(main.title, "调用子代理回答一加一");
+  assert.equal(snapshot.sessions.find((s) => s.sessionId === "main-1"), undefined);
+  assert.equal(snapshot.totals.requests, 0);
+  assert.equal(snapshot.totals.tokens.inputTokens, 0);
+  // 路由表里只剩池内候选（没有用量），主代理的 paid 路由不在其中。
+  assert.equal(snapshot.routes.length, 1);
+  assert.equal(snapshot.routes[0].model, "subagent");
+  assert.equal(snapshot.routes[0].requests, 0);
+  assert.equal(snapshot.routes[0].totalTokens, 0);
 });
 
 test("标题 latest-wins，后来的覆盖前面的", async () => {
   const { ctx, handlers, routes } = stubCtx();
   apply(ctx, { enabled: true, pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 3 }] });
-  emit(handlers, mainSession(), { type: "session/title", data: { title: "旧标题", messageSeqs: [], source: "user" } });
-  emit(handlers, mainSession(), { type: "session/title", data: { title: "新标题", messageSeqs: [], source: "user" } });
-  emit(handlers, mainSession(), {
+  emit(handlers, subagentSession("child-1", "main-1"), { type: "session/title", data: { title: "旧标题", messageSeqs: [], source: "user" } });
+  emit(handlers, subagentSession("child-1", "main-1"), { type: "session/title", data: { title: "新标题", messageSeqs: [], source: "user" } });
+  emit(handlers, subagentSession("child-1", "main-1"), {
     type: "assistant/message",
     data: {
       turn: 1,
       step: 1,
       usage: { inputTokens: 10, outputTokens: 1 },
-      message: { source: { kind: "model", provider: "c2a", model: "paid" } },
+      message: { source: { kind: "model", provider: "c2a", model: "subagent" } },
     },
   });
   const snapshot = await readSnapshot(routes);
-  const main = snapshot.sessions.find((s) => s.sessionId === "main-1");
-  assert.equal(main.title, "新标题");
+  const child = snapshot.sessions.find((s) => s.sessionId === "child-1");
+  assert.equal(child.title, "新标题");
 });
 
 test("没有标题事件时标题为 undefined", async () => {
   const { ctx, handlers, routes } = stubCtx();
   apply(ctx, { enabled: true, pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 3 }] });
-  emit(handlers, mainSession(), {
+  emit(handlers, subagentSession("child-1", "main-1"), {
     type: "assistant/message",
     data: {
       turn: 1,
       step: 1,
       usage: { inputTokens: 10, outputTokens: 1 },
-      message: { source: { kind: "model", provider: "c2a", model: "paid" } },
+      message: { source: { kind: "model", provider: "c2a", model: "subagent" } },
     },
   });
   const snapshot = await readSnapshot(routes);
-  const main = snapshot.sessions.find((s) => s.sessionId === "main-1");
-  assert.equal(main.title, undefined);
+  const child = snapshot.sessions.find((s) => s.sessionId === "child-1");
+  assert.equal(child.title, undefined);
 });
 
 // ---- 分配记账 ----

@@ -3,8 +3,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { PoolStats, routeKey, parseRouteKey, MAX_TRACKED_SESSIONS } from "../lib/stats.js";
 
-/** 造一个最小会话头。 */
+/**
+ * 造一个最小会话头。
+ *
+ * 默认是**子代理会话**（origin=subagent）——账本只统计子代理，
+ * 主代理会话的消耗不进池的账（见 lib/stats.js 的 isSubagentSession）。
+ * @param {string} id - 会话 id。
+ * @param {object} extra - 追加到 header 的字段。
+ * @returns {object} 会话。
+ */
 function sessionOf(id, extra = {}) {
+  return {
+    id,
+    header: { id, createdAt: 1, cwd: "/tmp", origin: "subagent", ...extra },
+  };
+}
+
+/**
+ * 造一个主代理会话（origin 不为 subagent）。
+ * @param {string} id - 会话 id。
+ * @param {object} extra - 追加到 header 的字段。
+ * @returns {object} 会话。
+ */
+function parentSessionOf(id, extra = {}) {
   return {
     id,
     header: { id, createdAt: 1, cwd: "/tmp", ...extra },
@@ -94,22 +115,56 @@ test("非法 usage 字段被忽略", () => {
 
 // ---- 会话归属 ----
 
-test("会话明细区分主代理与子代理", () => {
+test("主代理会话的消耗不进池的账，只记子代理", () => {
   const stats = new PoolStats();
-  const parent = sessionOf("parent-1");
-  const child = sessionOf("child-1", { origin: "subagent", parentSession: "parent-1" });
+  const parent = parentSessionOf("parent-1");
+  const child = sessionOf("child-1", { parentSession: "parent-1" });
   stats.recordSessionUsage(parent, "c2a", "paid", { turn: 1, step: 1 }, { inputTokens: 50, outputTokens: 10 }, 1000);
   stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 70, outputTokens: 20 }, 2000);
   const snap = stats.snapshot();
-  assert.equal(snap.sessions.length, 2);
+  // 主代理会话根本不该出现在账本里。
+  assert.equal(snap.sessions.length, 1);
+  assert.equal(snap.sessions.find((s) => s.sessionId === "parent-1"), undefined);
   const childRow = snap.sessions.find((s) => s.sessionId === "child-1");
-  const parentRow = snap.sessions.find((s) => s.sessionId === "parent-1");
   assert.equal(childRow.isSubagent, true);
   assert.equal(childRow.parentSessionId, "parent-1");
-  assert.equal(parentRow.isSubagent, false);
+  // 总量只含子代理的 70+20，不含主代理的 50+10。
+  assert.equal(snap.totals.requests, 1);
+  assert.equal(snap.totals.tokens.inputTokens, 70);
+  assert.equal(snap.totals.tokens.outputTokens, 20);
+  // 路由统计里也不该出现主代理的 paid 路由。
+  assert.equal(snap.routes.length, 1);
+  assert.equal(snap.routes[0].model, "free");
   assert.equal(childRow.routes.length, 1);
   assert.equal(childRow.routes[0].model, "free");
   assert.equal(childRow.totalTokens, 90);
+});
+
+test("主代理会话完全不影响统计", () => {
+  const stats = new PoolStats();
+  stats.recordSessionUsage(
+    parentSessionOf("p1"),
+    "c2a",
+    "paid",
+    { turn: 1, step: 1 },
+    { inputTokens: 9999, outputTokens: 9999 },
+    1000,
+  );
+  const snap = stats.snapshot();
+  assert.equal(snap.sessions.length, 0);
+  assert.equal(snap.totals.requests, 0);
+  assert.equal(snap.totals.tokens.inputTokens, 0);
+  assert.equal(snap.routes.length, 0);
+});
+
+test("origin 是判定子代理的唯一依据（parentSession 不作数）", () => {
+  const stats = new PoolStats();
+  // 普通 fork：带 parentSession 但 origin 不是 subagent → 不算子代理。
+  const forked = sessionOf("fork-1", { origin: undefined, parentSession: "root-1" });
+  stats.recordSessionUsage(forked, "c2a", "paid", { turn: 1, step: 1 }, { inputTokens: 50, outputTokens: 10 }, 1000);
+  const snap = stats.snapshot();
+  assert.equal(snap.sessions.length, 0);
+  assert.equal(snap.totals.tokens.inputTokens, 0);
 });
 
 test("同一 turn/step 重复结算按替换语义（总量取最新值）", () => {

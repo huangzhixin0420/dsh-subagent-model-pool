@@ -36,6 +36,8 @@ function route(provider, model, extra = {}) {
     active: 0,
     maxConcurrent: 3,
     weight: 1,
+    // 默认是池内候选；回退路由用 inPool: false 表示。
+    inPool: true,
     ...extra,
   };
 }
@@ -137,27 +139,53 @@ test("健康状态区分空闲、满载、探测失败", () => {
   assert.equal(routeHealth(route("c2a", "a", { active: 0, maxConcurrent: 3, probeFailures: 1 })), "down");
 });
 
-// ---- 会话分组 ----
+// ---- 会话列表 ----
 
-test("子代理挂到主会话下面", () => {
+test("会话平铺列出（账本只记子代理，没有父子层级）", () => {
   const { groupSessions } = loadTestExports();
   const rows = groupSessions([
-    { sessionId: "p", isSubagent: false, requests: 1, tokens: {}, routes: [] },
     { sessionId: "c1", isSubagent: true, parentSessionId: "p", requests: 1, tokens: {}, routes: [] },
     { sessionId: "c2", isSubagent: true, parentSessionId: "p", requests: 1, tokens: {}, routes: [] },
   ]);
-  assert.deepEqual(rows.map((r) => r.session.sessionId), ["p", "c1", "c2"]);
-  assert.equal(rows[0].kind, "parent");
-  assert.equal(rows[1].kind, "child");
+  assert.deepEqual(rows.map((r) => r.session.sessionId), ["c1", "c2"]);
+  assert.equal(rows[0].kind, "session");
 });
 
-test("父会话不在账本里的孤儿子代理仍单独成行", () => {
+test("空列表返回空数组", () => {
   const { groupSessions } = loadTestExports();
-  const rows = groupSessions([
-    { sessionId: "c1", isSubagent: true, parentSessionId: "gone", requests: 1, tokens: {}, routes: [] },
-  ]);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].kind, "child");
+  assert.deepEqual(groupSessions([]), []);
+});
+
+// ---- 回退路由 ----
+
+test("回退路由与池内路由分组，各自算占比", () => {
+  const { rankRoutes } = loadTestExports();
+  const ranked = rankRoutes(
+    [
+      route("c2a", "free", { totalTokens: 30 }),
+      route("c2a", "paid", { totalTokens: 70, inPool: false }),
+    ],
+    "tokens",
+  );
+  const pool = ranked.filter((r) => r.isFallback !== true);
+  const fallback = ranked.filter((r) => r.isFallback === true);
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0].model, "free");
+  assert.equal(pool[0].ratio, 1);
+  assert.equal(fallback.length, 1);
+  assert.equal(fallback[0].model, "paid");
+  assert.equal(fallback[0].tone, "fb");
+  // 回退组自己算占比（组内只有一条 → 100%），不混进池内分母。
+  assert.equal(fallback[0].ratio, 1);
+});
+
+test("池外但没有用量的路由不显示为回退", () => {
+  const { rankRoutes } = loadTestExports();
+  const ranked = rankRoutes(
+    [route("c2a", "free", { totalTokens: 10 }), route("c2a", "idle", { totalTokens: 0, inPool: false })],
+    "tokens",
+  );
+  assert.equal(ranked.filter((r) => r.isFallback === true).length, 0);
 });
 
 // ---- 格式化 ----

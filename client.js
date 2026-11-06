@@ -748,7 +748,9 @@
         t0: "var(--dsw-alias-accent,#2f6bff)",
         t1: "var(--dsw-alias-state-success-primary,#1a8a4a)",
         t2: "var(--dsw-alias-state-warning-primary,#c77d0a)",
-        t3: "#8a63d2"
+        t3: "#8a63d2",
+        // 回退路由（池无候选，子代理退回父路由）：灰色，与池内区分。
+        fb: "var(--dsw-alias-label-tertiary,#adb2b8)"
       };
 
       var STATS_CSS = [
@@ -809,13 +811,19 @@
         ".smpv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
         ".smpv-stack{margin:0 0 6px}",
         ".smpv-dot{width:7px;height:7px;border-radius:2px;display:inline-block;flex:none}",
-        ".smpv-route{display:grid;grid-template-columns:7px minmax(112px,160px) 1fr auto;gap:8px;align-items:center;padding:3px 0}",
+        ".smpv-route{display:grid;grid-template-columns:7px minmax(112px,160px) auto 1fr auto;gap:8px;align-items:center;padding:3px 0}",
         ".smpv-routeLabel{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
         ".smpv-table .smpv-routeLabel{font-family:inherit;font-size:11px;color:var(--dsw-alias-label-secondary)}",
         ".smpv-routeLabel b{font-weight:600}",
         ".smpv-routeLabel span{color:var(--dsw-alias-label-tertiary)}",
         ".smpv-bar{height:8px;border-radius:2px;background:var(--dsw-alias-bg-layer-2);display:flex;overflow:hidden}",
         ".smpv-barI{display:block;height:100%}",
+        // 回退段与池内段之间留缝，视觉上分开。
+        ".smpv-barGap{display:block;width:2px;height:100%;flex:none;background:var(--dsw-alias-bg-base,#151517)}",
+        ".smpv-barI.fb{opacity:.75}",
+        // 回退路由行：灰化 + 标签，与池内路由区分。
+        ".smpv-route.fallback .smpv-routeLabel{color:var(--dsw-alias-label-tertiary)}",
+        ".smpv-fbTag{font-size:10px;line-height:15px;padding:0 4px;border-radius:3px;color:var(--dsw-alias-label-tertiary);border:.5px solid var(--dsw-alias-border-l1);flex:none}",
         ".smpv-routeNums{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);text-align:right;white-space:nowrap}",
         ".smpv-routeNums b{color:var(--dsw-alias-label-primary);font-weight:600}",
         ".smpv-slotRow{display:grid;grid-template-columns:minmax(120px,168px) 44px 1fr auto;gap:8px;align-items:center;padding:3px 0}",
@@ -834,9 +842,6 @@
         ".smpv-table tbody td{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:4px 8px;font-size:11px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}",
         ".smpv-table tbody tr:last-child td{border-bottom:0}",
         // 父子关系用左侧竖线表达，不用 padding 硬推——标题列宽度不受影响。
-        ".smpv-table tr.child td:first-child{box-shadow:inset 2px 0 0 var(--dsw-alias-border-l1);padding-left:18px}",
-        ".smpv-table tr.child td{color:var(--dsw-alias-label-secondary)}",
-        ".smpv-table tr.parent td:first-child{font-weight:500}",
         ".smpv-sessionTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
         ".smpv-kind{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px}",
         // 数字在口径切换时突变，给一个轻微淡入，避免生硬跳变。
@@ -869,8 +874,7 @@
         ".smpv-table tbody td:first-child{font-weight:500;padding-bottom:3px}",
         ".smpv-table tbody td:first-child::before{content:none}",
         ".smpv-table tbody td:first-child .smpv-sessionTitle{white-space:normal;overflow-wrap:anywhere}",
-        ".smpv-table tr.child td:first-child{box-shadow:none;padding-left:14px;border-left:2px solid var(--dsw-alias-border-l1)}",
-        ".smpv-table tr.parent td:first-child{font-weight:600}",
+        ".smpv-table tr.session td:first-child{font-weight:600}",
         // 数值字段排成两列网格：8 行压到 6 行，行高从 183px 降到 ~110px。
         ".smpv-table tbody tr{display:grid;grid-template-columns:1fr 1fr;column-gap:10px}",
         ".smpv-table tbody td:first-child{grid-column:1/-1}",
@@ -905,23 +909,43 @@
         return route.totalTokens || 0;
       }
 
-      /** 按口径排序路由并算占比。 */
+      /**
+       * 按口径排序路由并算占比。
+       *
+       * 分两组：池内候选（inPool）与回退路由（不在池里、但被子代理用到——
+       * 池无候选时子代理退回父路由）。两组各自算占比，回退单独一行，
+       * 免得它混在池内分布里看起来像池的一部分。
+       */
       function rankRoutes(routes, mode) {
         var measured = routes.map(function (route) {
           return Object.assign({}, route, { measure: measureOf(route, mode) });
         });
-        var total = measured.reduce(function (sum, route) { return sum + route.measure; }, 0);
-        measured.sort(function (left, right) {
+        var sortFn = function (left, right) {
           return right.measure - left.measure
             || left.provider.localeCompare(right.provider)
             || left.model.localeCompare(right.model);
-        });
-        return measured.map(function (route, index) {
+        };
+        var inPool = measured.filter(function (route) { return route.inPool === true; }).sort(sortFn);
+        var fallback = measured.filter(function (route) {
+          return route.inPool !== true && measureOf(route, mode) > 0;
+        }).sort(sortFn);
+        var poolTotal = inPool.reduce(function (sum, route) { return sum + route.measure; }, 0);
+        var fallbackTotal = fallback.reduce(function (sum, route) { return sum + route.measure; }, 0);
+        var toneOf = function (index) { return "t" + (index % 4); };
+        var poolRanked = inPool.map(function (route, index) {
           return Object.assign({}, route, {
-            tone: "t" + (index % 4),
-            ratio: total === 0 ? 0 : route.measure / total
+            tone: toneOf(index),
+            ratio: poolTotal === 0 ? 0 : route.measure / poolTotal
           });
         });
+        var fallbackRanked = fallback.map(function (route, index) {
+          return Object.assign({}, route, {
+            tone: "fb",
+            ratio: fallbackTotal === 0 ? 0 : route.measure / fallbackTotal,
+            isFallback: true
+          });
+        });
+        return poolRanked.concat(fallbackRanked);
       }
 
       /** 池槽位图：每个并发槽的状态。 */
@@ -969,36 +993,16 @@
         return (Number.isInteger(percent) ? percent : percent.toFixed(1)) + "%";
       }
 
-      /** 会话父子分组：主会话一行，其子代理各占一行。 */
+      /**
+       * 会话列表。
+       *
+       * 账本只记子代理会话（主代理走自己的路由，不归池管），所以这里
+       * 全是子代理，没有父子层级可分——平铺即可。
+       */
       function groupSessions(sessions) {
-        var byId = {};
-        sessions.forEach(function (session) { byId[session.sessionId] = session; });
-        var roots = [];
-        var orphans = [];
-        var childrenOf = {};
-        sessions.forEach(function (session) {
-          if (session.isSubagent !== true || session.parentSessionId === undefined) {
-            roots.push(session);
-            return;
-          }
-          if (byId[session.parentSessionId] === undefined) {
-            // 父会话已被账本淘汰：仍是子代理，只是没有可挂的行。
-            orphans.push(session);
-            return;
-          }
-          (childrenOf[session.parentSessionId] = childrenOf[session.parentSessionId] || []).push(session);
+        return sessions.map(function (session) {
+          return { kind: "session", session: session };
         });
-        var rows = [];
-        roots.forEach(function (root) {
-          rows.push({ kind: "parent", session: root });
-          (childrenOf[root.sessionId] || []).forEach(function (child) {
-            rows.push({ kind: "child", session: child });
-          });
-        });
-        orphans.forEach(function (child) {
-          rows.push({ kind: "child", session: child });
-        });
-        return rows;
       }
 
       /** 校验 Host 返回的快照，形状不对就当作不可用。 */
@@ -1072,14 +1076,9 @@
       function RoutePanel(props) {
         var rows = props.ranked;
         var visible = rows.filter(function (route) { return route.measure > 0; });
-        var stack = visible.map(function (route) {
-          return jsx("i", {
-            key: route.provider + "/" + route.model,
-            className: "smpv-barI",
-            title: route.model + " · " + route.provider + " " + formatPercent(route.ratio),
-            style: { width: (route.ratio * 100).toFixed(2) + "%", background: TONE_COLORS[route.tone] }
-          });
-        });
+        // 池内与回退分开画：堆叠条也分两段，中间留缝，一眼看出哪部分是回退。
+        var poolRows = visible.filter(function (route) { return route.isFallback !== true; });
+        var fbRows = visible.filter(function (route) { return route.isFallback === true; });
         var modeText = props.mode === "requests" ? "按请求数" : props.mode === "assignments" ? "按分配次数" : "按 Token";
         return jsx("div", {
           className: "smpv-panel",
@@ -1096,20 +1095,21 @@
               ? jsx("div", { className: "smpv-empty", children: "还没有分配记录。" })
               : jsx("div", {
                 className: "smpv-stack",
-                children: stack.length === 0
-                  ? jsx("div", { className: "smpv-bar", children: jsx("i", { className: "smpv-barI", style: { width: "100%", background: "var(--dsw-alias-bg-layer-2)" } }) })
-                  : jsx("div", { className: "smpv-bar", children: stack })
+                children: stack2(poolRows, fbRows)
               }),
             rows.length === 0 ? null : rows.map(function (route) {
               return jsx("div", {
                 key: route.provider + "/" + route.model,
-                className: "smpv-route",
+                className: "smpv-route" + (route.isFallback === true ? " fallback" : ""),
                 children: [
                   jsx("span", {
                     className: "smpv-dot",
                     style: { background: TONE_COLORS[route.tone] }
                   }),
                   jsx(RouteLabel, { route: route }),
+                  route.isFallback === true
+                    ? jsx("span", { className: "smpv-fbTag", children: "回退" })
+                    : null,
                   jsx("span", {
                     className: "smpv-routeNums",
                     children: [
@@ -1126,6 +1126,37 @@
             })
           ]
         });
+      }
+
+      /**
+       * 堆叠条：池内段 + 回退段（回退段前留 2px 缝）。
+       * @param {object[]} poolRows - 池内路由。
+       * @param {object[]} fbRows - 回退路由。
+       * @returns {object} 堆叠条节点。
+       */
+      function stack2(poolRows, fbRows) {
+        if (poolRows.length === 0 && fbRows.length === 0) {
+          return jsx("div", {
+            className: "smpv-bar",
+            children: jsx("i", { className: "smpv-barI", style: { width: "100%", background: "var(--dsw-alias-bg-layer-2)" } })
+          });
+        }
+        var seg = function (list, cls) {
+          return list.map(function (route) {
+            return jsx("i", {
+              key: route.provider + "/" + route.model,
+              className: "smpv-barI" + cls,
+              title: route.model + " · " + route.provider + " " + formatPercent(route.ratio),
+              style: { width: (route.ratio * 100).toFixed(2) + "%", background: TONE_COLORS[route.tone] }
+            });
+          });
+        };
+        var children = seg(poolRows, "");
+        if (fbRows.length > 0) {
+          children.push(jsx("i", { key: "__fbgap", className: "smpv-barGap" }));
+          children = children.concat(seg(fbRows, " fb"));
+        }
+        return jsx("div", { className: "smpv-bar", children: children });
       }
 
       /** 池槽位面板：只列池内候选（池外的路由是主代理自己的模型，不归池管）。 */
@@ -1174,7 +1205,7 @@
           className: "smpv-panel",
           style: { overflowX: "auto" },
           children: [
-            jsx("h3", { className: "smpv-panelTitle", children: "会话明细" }),
+            jsx("h3", { className: "smpv-panelTitle", children: "子代理会话" }),
             rows.length === 0
               ? jsx("div", { className: "smpv-empty", children: "还没有观测到模型请求。" })
               : jsx("table", {
@@ -1183,14 +1214,13 @@
                   jsx("thead", {
                     children: jsx("tr", {
                       children: [
-                        jsx("th", { style: { width: "32%" }, children: "会话" }),
-                        jsx("th", { style: { width: "7%" }, children: "类型" }),
-                        jsx("th", { style: { width: "17%" }, children: "路由" }),
+                        jsx("th", { style: { width: "38%" }, children: "会话" }),
+                        jsx("th", { style: { width: "18%" }, children: "路由" }),
                         jsx("th", { className: "smpv-num", style: { width: "7%" }, children: "请求" }),
                         jsx("th", { className: "smpv-num", style: { width: "8%" }, children: "输入" }),
                         jsx("th", { className: "smpv-num", style: { width: "8%" }, children: "输出" }),
                         jsx("th", { className: "smpv-num", style: { width: "11%" }, children: "缓存读" }),
-                        jsx("th", { className: "smpv-num", style: { width: "11%" }, children: "缓存写" })
+                        jsx("th", { className: "smpv-num", style: { width: "10%" }, children: "缓存写" })
                       ]
                     })
                   }),
@@ -1200,7 +1230,6 @@
                       var routeText = session.routes.map(function (route) {
                         return route.model + "(" + route.provider + ")";
                       }).join(" ");
-                      var isSub = session.isSubagent === true;
                       var title = session.title !== undefined && session.title !== null
                         ? session.title
                         : session.sessionId;
@@ -1214,11 +1243,6 @@
                               className: "smpv-sessionTitle",
                               children: title
                             })
-                          }),
-                          jsx("td", {
-                            className: "smpv-kind",
-                            "data-label": "类型",
-                            children: isSub ? "子代理" : "主代理"
                           }),
                           jsx("td", {
                             className: "smpv-routeLabel",
