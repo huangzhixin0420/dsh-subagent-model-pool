@@ -8,7 +8,7 @@
 
 ## 行为
 
-- 子代理**首次**发起模型请求时，从池里挑一个模型，此后全程锁定（`request/header` 落盘即基线）。
+- 子代理**创建时、初始任务释放前**完成候选探测并通过 `agent.model.select()` 选定模型，此后全程锁定。适配 DSH 0.2.2 的 step preparation 约束。
 - 每个候选有独立的 `maxConcurrent`（默认 **3**），语义是**并发占用数**，不是累计次数。
 - 占用由 `subagent/end` 释放，按 `runId` 幂等。冷恢复会开新 run，各自独立计数。
 - 池全满、预检失败或子代理被显式指定模型时，**静默回退父会话路由**，永不阻断子代理。
@@ -49,7 +49,7 @@
 
 - 非子代理（`header.origin !== "subagent"` 或无 `parentSession`）——保护主会话的模型切换。
 - `fork` 子代理——它继承父对话前缀，换模型会作废 KV 缓存。
-- 显式指定了模型的子代理（`agent.options.model` 与父路由不同）——主模型是有意为之。
+- 显式指定了模型的子代理——包括显式路由恰好等于父路由的情况。插件在 `subagents.startActivation()` 的原始参数上保留显式标记，不再靠合并后的路由差值猜测。若无法安全安装该标记，插件会停用池分配，而不是误覆盖。
 
 ## 安装
 
@@ -137,7 +137,7 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 - `exports.inject` 必须包含 `remote` 和 `remote.session`，否则读 `ctx.remote.session.modelCatalog()` 会抛 `cannot get property "remote" without inject`，**整个客户端条目 boot 失败**（页面显示 `1 entry did not activate`）。
 - 模型目录里已不存在的候选仍要渲染（标记「已下线」），否则用户既看不到也删不掉它。
 - 候选键用 `JSON.stringify([provider, model])` 而不是 `${provider}\0${model}`：后者在任一侧自带分隔符时会碰撞。
-- 配置热更新：volatile 引用的写入无法订阅，所以在每次 `agent/request` 前比对配置指纹（`signatureOf`），变了就整体换池。设置页改完**无需重启**。
+- 配置热更新：volatile 引用的写入无法订阅，所以在每次 `agent/created` 前比对配置指纹（`signatureOf`），变了就整体换池。设置页改完**无需重启**。
 
 ## 实测验证（2026-11-02 ~ 11-03）
 
@@ -159,16 +159,17 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 | 取消勾选 | 该行上限框消失，保存后条目被移除 |
 | 改 `maxConcurrent` 等于继承值保存 | 条目被删除，回落到 bundle 默认值——这是 `edit` 的正确语义 |
 
-测试：`node --test tests/*.test.js`，45 项全通过。
+测试：`node --test tests/*.test.js`，76 项全通过（2026-11-06，含 DSH 0.2.2 创建期选路、显式同/异路由、fork、冷恢复与探测回退回归）。
 
 
 ## 实现要点
 
 - 监听装在**无 scope tag** 的插件 ctx 上，才能收到全部子/孙代理事件（`dsh-scope/lib/index.js:332`）。
-- `agent/request` 用 `{ prepend: true }` 注册——同 agent 上后注册者在内层，返回值会被外层覆盖。
-- 返回值**必须剥掉 `reasoningEffort`**：子代理没有 `installModelSelection` 代为剥除，保留会抛 `UNSUPPORTED_REASONING_EFFORT`（`dsh-llm/lib/index.js:2188-2199`）。
-- 三态守卫：无 `request/header` → 首次分配；有且等于记录 → 放行；有但不等（冷恢复退回父路由）→ 重新注入。
-- 选、占、记在同一同步块内完成，中间不 `await`——workflow 并发 fan out 否则会超发。
+- DSH 0.2.2 起禁止在 `agent/request` 改变已固定的 provider/model；分配必须在 `agent/created` 中完成并调用 `agent.model.select()`（`dsh-agent-loop/lib/index.js:1000-1001`）。
+- `agent/created` 是 serial 且会被 await，早于初始 prompt 投递；普通 `subagent` 与 workflow 都经过此节点。
+- 显式性只能在父子路由合并前保留：`startActivation(spec)` 的原始 `request.agentOptions` 是判据，内部布尔标记随展开进入当前子代理，但不会通过父代理的已知路由字段遗传给孙代理。
+- 冷恢复沿用已持久化的 `request/header` / `model/selection`，不重新探测；`fork` 不参与池化。
+- 选、占、记在同一同步块内完成，中间不 `await`——workflow 并发 fan out 否则会超发。探测或选路失败必须释放占用。
 
 ## 开发
 

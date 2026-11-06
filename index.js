@@ -1,30 +1,44 @@
 /**
  * 插件入口：子代理模型池。
  *
- * 在 `agent/request` waterfall 上拦截子代理的首次模型请求，按池化策略
- * 分配一次路由，之后该子代理锁定此路由。
+ * 分配时机（2026-11-06 重构，适配 DSH 0.2.2 的 step preparation）
+ * ---------------------------------------------------------------
+ * DSH 0.2.2 在 `prepareRequest()` 里加了硬校验
+ * （dsh-agent-loop/lib/index.js:1000-1001）：`agent/request` waterfall 返回的
+ * provider/model/effort 必须与 step preparation 时固定的 selection 完全一致，
+ * 否则抛 `use agent.model.select() before step preparation`。
+ *
+ * 所以本插件改在 **`agent/created`**（serial，await 完成才继续）里完成
+ * 「挑候选 → 真实探测 → 占用 → `agent.model.select(route)`」。`agent/created`
+ * 位于 `dsh-agent-loop/lib/index.js:1579`，早于 `initializeAgent` 返回、
+ * 也早于子代理把初始 prompt 投进 inbox（dsh-subagent/lib/index.js:1460 起），
+ * 满足「初始 prompt 释放前完成选择」。
+ *
+ * `agent/request` 上不再注册任何改模型的逻辑。
  *
  * 关键约束（全部经源码核实，行号见 README）：
- * - 监听必须 prepend：同一 agent 上后注册者在内层，返回会被外层覆盖。
- * - 返回值必须剥掉 `reasoningEffort`：子代理没有 installModelSelection
- *   代为剥除，保留会抛 UNSUPPORTED_REASONING_EFFORT。
- * - 选、占、记三步同步完成，中途不得 await；预检失败要回滚占用。
- * - 三态守卫：无 header → 首次分配；有 header 且等于我记录 → 放行；
- *   有 header 但不等 → 冷恢复退回了父路由，重新注入。
+ * - 无可用候选时不 select，selection 保持空 → `model.current()` 回退
+ *   `agent.options`（父路由），即「回退父路由」。
+ * - 显式指定 provider/model 的子代理绝不覆盖，显式性取自
+ *   `subagents.startActivation()` 的原始调用参数（见 lib/explicit.js）。
+ * - fork 子代理排除（它继承父对话前缀，换模型会作废 KV 缓存）。
+ * - 冷恢复（source !== "startup"）不重新分配：持久化里已有路由就沿用。
+ * - 选、占、记三步同步完成，中途不得 await；探测失败要回滚占用。
  *
  * @module dsh-subagent-model-pool
  */
 
 import z from "@deepseek-ai/schemastery";
 import { ModelPool, DEFAULT_MAX_CONCURRENT } from "./lib/pool.js";
+import { STRATEGIES } from "./lib/strategy.js";
+import { isPoolableSubagent, persistedRouteOf, sameRoute } from "./lib/identity.js";
+import { hasExplicitRoute, patchStartActivation } from "./lib/explicit.js";
 
 /** 单次探测的超时毫秒数。 */
 const PROBE_TIMEOUT_MS = 10_000;
 
 /** 探测请求的最大输出 token——够收到首个 chunk 即可。 */
 const PROBE_MAX_TOKENS = 8;
-import { STRATEGIES } from "./lib/strategy.js";
-import { isPoolableSubagent, explicitRouteOf } from "./lib/identity.js";
 
 export const name = "subagent-model-pool";
 export const inject = ["llm", "agents"];
@@ -48,22 +62,6 @@ export const Config = z.object({
   strategy: z.string().default("fewest-active"),
   pools: z.array(PoolEntry).default([]),
 }).volatile();
-
-/**
- * 从 waterfall 结果里剥掉 reasoningEffort，返回只带目标路由的副本。
- *
- * 保留其余字段（maxTokens 等），只删 effort——切路由时 effort 的归属会变，
- * 内核在别处也是这么处理的（dsh-agent/lib/index.js:185 的
- * `const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort }`）。
- *
- * @param {object} resolved - `next()` 的结果。
- * @param {{provider: string, model: string}} route - 目标路由。
- * @returns {object} 新的请求配置。
- */
-function withRoute(resolved, route) {
-  const { reasoningEffort: _dropped, ...rest } = resolved ?? {};
-  return { ...rest, provider: route.provider, model: route.model };
-}
 
 /**
  * 读取当前配置。
@@ -111,6 +109,11 @@ function signatureOf(config) {
   ]);
 }
 
+/** 路由折成 `provider/model`，用于日志。 */
+function routeLabel(route) {
+  return `${route.provider}/${route.model}`;
+}
+
 export function apply(ctx, config) {
   const initial = readConfig(config);
   ctx.logger?.info?.(
@@ -119,10 +122,12 @@ export function apply(ctx, config) {
 
   // 池是可变的：配置热更新时整体换掉，监听器只装一次。
   let pool = buildPool(initial);
-  let active = 0;
 
   // in-flight 探测去重：key → Promise<boolean>。探测完成后自行移除。
   const probing = new Map();
+
+  // 只有成功保留原始显式标记时才允许池分配；否则宁可全部回退父路由。
+  let explicitTrackingReady = false;
 
   if (pool === undefined) {
     ctx.logger?.info?.("subagent-model-pool: 未启用或模型池为空，不装配分配逻辑");
@@ -140,19 +145,43 @@ export function apply(ctx, config) {
     const signature = signatureOf(next);
     if (signature === lastSignature) return pool;
     lastSignature = signature;
+    const previous = pool;
     pool = buildPool(next);
     if (pool === undefined) {
       ctx.logger?.info?.("subagent-model-pool: 配置变更后池为空，停止分配");
     } else {
-      active = 0;
       ctx.logger?.info?.(
         `subagent-model-pool: 配置热更新，现 ${pool.snapshot().length} 个候选，策略 ${pool.strategy}`,
       );
     }
+    // 旧池的占用记录带不过来，让新池从零开始计数；已分配的子代理靠
+    // selection 锁定模型，不受影响。
+    void previous;
     return pool;
   };
 
-  // 记录本轮的 runId：subagent/start 早于首条 prompt 提交（dsh-subagent:1865 → :1460）。
+  // ---- 显式标记拦截：subagents.startActivation ----
+  //
+  // 这是唯一能同时覆盖 `subagent` 工具与 `workflow` 的 `agent()` 两条创建
+  // 路径的拦截点，也是唯一能拿到「原始显式参数」的地方（见 lib/explicit.js）。
+  ctx.inject(["subagents"], (subagentsCtx) => {
+    const subagents = subagentsCtx.get("subagents");
+    const restore = patchStartActivation(subagents);
+    if (restore === undefined) {
+      ctx.logger?.warn?.("subagent-model-pool: 无法保留显式路由标记，安全起见停止池分配");
+      return;
+    }
+    explicitTrackingReady = true;
+    subagentsCtx.effect(() => () => {
+      explicitTrackingReady = false;
+      restore();
+    }, "subagent-model-pool.patchStartActivation()");
+  });
+
+  // ---- 占用记账：run 生命周期 ----
+
+  // subagent/start 晚于 agent/created（dsh-subagent/lib/index.js:1889 在
+  // agents.create 返回之后才 observer.start()），把占位键迁到真实 runId。
   ctx.on("subagent/start", (identity) => {
     if (identity?.id === undefined) return;
     const pool_ = currentPool();
@@ -166,25 +195,18 @@ export function apply(ctx, config) {
     pool?.release(identity.runId, identity.id);
   });
 
-  // 兜底释放：agent 销毁但没等到 subagent/end。与上面幂等共存。
+  // 兜底释放：agent 销毁但没等到 subagent/end（例如创建中途失败）。
   ctx.on("agent/disposed", ({ agent }) => {
     if (agent?.session?.header?.origin !== "subagent") return;
-    pool?.release(undefined, agent.id);
+    pool?.releaseChild(agent.id);
   });
 
   /**
-   * 预检候选路由是否真的可解析。
-   *
-   * 已失败过的路由不再重试，避免每个子代理都撞一次。
-   * @param {{provider: string, model: string}} route - 待校验路由。
-   * @returns {Promise<boolean>} 是否可用。
-   */
-  /**
    * 对候选发一条最小真实请求，验证端到端可用。
    *
-   * prepareCall 会复用 agent 层该 provider 的全部配置（baseURL/凭据都在
-   * adapter 内部解析，插件不经手凭据）。流式拿到首个 chunk 即判存活，
-   * 不等完整回复——探测目的只是「这条路由现在能不能跑」。
+   * prepareCall 会复用该 provider 的全部配置（baseURL/凭据都在 adapter
+   * 内部解析，插件不经手凭据）。流式拿到首个 chunk 即判存活，不等完整
+   * 回复——探测目的只是「这条路由现在能不能跑」。
    * @param {{provider: string, model: string}} route - 待探测路由。
    * @param {object} llm - dsh-llm 服务。
    * @returns {Promise<boolean>} 是否可用。
@@ -209,11 +231,16 @@ export function apply(ctx, config) {
     return true;
   }
 
-  async function validate(route) {
+  /**
+   * 校验一条候选路由是否可用：validated 5min 内直接放行，rejected 60s 内
+   * 直接拒绝，其余发一次真实探测（in-flight 去重）。
+   * @param {{provider: string, model: string}} route - 待校验路由。
+   * @returns {Promise<boolean>} 是否可用。
+   */
+  async function validate(route, pool_) {
     const key = `${route.provider}\u0000${route.model}`;
-    if (pool === undefined) return false;
-    if (pool.isValidated(key)) return true;
-    if (pool.isRejected(key)) return false;
+    if (pool_.isValidated(key)) return true;
+    if (pool_.isRejected(key)) return false;
     const llm = ctx.get("llm");
     if (llm === undefined) return false;
     // 并发去重：N 个子代理同时 spawn 只对同一候选发一次探测。
@@ -221,12 +248,12 @@ export function apply(ctx, config) {
     if (inflight === undefined) {
       inflight = probeRoute(route, llm)
         .then((ok) => {
-          if (ok) pool.markValidated(key);
+          if (ok) pool_.markValidated(key);
           return ok;
         }, (error) => {
-          pool.markRejected(key);
+          pool_.markRejected(key);
           ctx.logger?.warn?.(
-            `subagent-model-pool: ${route.provider}/${route.model} 探测失败，回退父路由：${error?.message ?? String(error)}`,
+            `subagent-model-pool: ${route.provider}/${route.model} 探测失败，换下一个候选：${error?.message ?? String(error)}`,
           );
           return false;
         })
@@ -241,66 +268,102 @@ export function apply(ctx, config) {
    *
    * 每个候选的占用都同步登记、失败即回滚，不会留下幽灵占用。
    * @param {string} childId - 子代理会话 id。
-   * @param {string|undefined} runId - 当前 run。
    * @returns {Promise<{provider: string, model: string}|undefined>} 可用路由，或 undefined 表示回退父路由。
    */
-  async function allocateValidated(childId, runId) {
+  async function allocateValidated(childId, pool_) {
     for (;;) {
-      if (pool === undefined) return undefined;
-      const route = pool.allocate(childId, runId);
+      const route = pool_.allocate(childId, undefined);
       if (route === undefined) return undefined;
-      if (await validate(route)) return route;
-      pool.discard(childId, runId);
-      if (pool.allRejected()) return undefined;
+      if (await validate(route, pool_)) return route;
+      pool_.discard(childId, undefined);
+      if (pool_.allRejected()) return undefined;
     }
   }
 
-  ctx.on(
-    "agent/request",
-    async (payload, next) => {
-      // 每轮请求前同步一次配置，设置页改完无需重启即生效。
+  /**
+   * `agent/created`：子代理发布后、初始 prompt 投递前确定路由。
+   *
+   * 顺序敏感：本监听器是 serial 且被 await（dsh-agent/lib/index.js:348），
+   * 返回时 `model.select()` 已落盘，`initializeAgent` 才会返回，子代理才
+   * 能投递初始 prompt。
+   */
+  ctx.on("agent/created", async ({ agent, source }) => {
+    try {
       const pool_ = currentPool();
-      if (pool_ === undefined) return next();
+      if (pool_ === undefined || !explicitTrackingReady) return;
 
-      const agent = payload?.agent;
-      const verdict = isPoolableSubagent(agent);
-      if (!verdict.ok) return next();
+      const subagents = ctx.get("subagents");
+      const verdict = isPoolableSubagent(agent, (providerName) =>
+        subagents?.getProvider?.(providerName),
+      );
+      if (!verdict.ok) {
+        if (verdict.reason === "fork") {
+          ctx.logger?.info?.(`subagent-model-pool: ${agent.id} 是 fork 子代理，跳过分配`);
+        }
+        return;
+      }
 
       const childId = agent.id;
-      const persisted = agent.session?.requestHeader?.()?.config;
+
+      // 硬约束：显式指定的 provider/model 绝不覆盖，即使它恰好等于父路由
+      // （v0.3.0 的缺陷正是把这种情形当成继承）。
+      if (hasExplicitRoute(agent)) {
+        ctx.logger?.info?.(
+          `subagent-model-pool: ${childId} 显式指定 ${agent.options.provider}/${agent.options.model}，不覆盖`,
+        );
+        return;
+      }
+
+      // 冷恢复：绝不重新分配。持久化里有路由就沿用（模型锁定跨重启仍然成立）。
+      if (source !== "startup") {
+        const persisted = persistedRouteOf(agent.session);
+        if (persisted !== undefined) {
+          pool_.adopt(childId, undefined, persisted);
+          const current = agent.model?.current?.();
+          if (!sameRoute(current, persisted)) agent.model.select(persisted);
+          ctx.logger?.info?.(
+            `subagent-model-pool: ${childId} 冷恢复沿用 ${routeLabel(persisted)}，不重新分配`,
+          );
+        } else {
+          ctx.logger?.info?.(
+            `subagent-model-pool: ${childId} 冷恢复但无持久化路由（从未发过请求），保持原样不分配`,
+          );
+        }
+        return;
+      }
+
+      // 同进程重复发布（理论上不会发生）：已有分配就沿用。
       const assigned = pool_.assignmentOf(childId);
-
-      // 态二：已分配且落盘 header 与之一致 → 原样放行，不重建对象。
-      if (assigned !== undefined && persisted !== undefined &&
-          persisted.provider === assigned.provider && persisted.model === assigned.model) {
-        return next();
-      }
-
-      // 态三：有 header 但不等我记录（冷恢复退回父路由）→ 重新注入。
       if (assigned !== undefined) {
-        pool_.adopt(childId, pool_.currentRunId(childId), assigned);
-        return withRoute(await next(), assigned);
+        pool_.adopt(childId, undefined, assigned);
+        if (!sameRoute(agent.model?.current?.(), assigned)) agent.model.select(assigned);
+        return;
       }
 
-      // 显式指定模型的子代理不覆盖：主模型是有意为之。
-      const parentId = agent.session?.header?.parentSession;
-      const parent = parentId === undefined ? undefined : ctx.get("agents").get(parentId);
-      if (explicitRouteOf(agent, parent) !== undefined) return next();
-
-      // 态一：首次分配。逐候选预检，全不行才回退父路由。
-      const runId = pool_.currentRunId(childId);
-      const route = await allocateValidated(childId, runId);
+      // 首次分配：真实探测通过的候选才用。
+      const route = await allocateValidated(childId, pool_);
       if (route === undefined) {
         ctx.logger?.info?.(`subagent-model-pool: 无可用候选，${childId} 回退父路由`);
-        return next();
+        return;
       }
-
-      active += 1;
+      try {
+        agent.model.select(route);
+      } catch (error) {
+        pool_.discard(childId, undefined);
+        throw error;
+      }
       ctx.logger?.info?.(
-        `subagent-model-pool: ${childId} → ${route.provider}/${route.model}（活跃分配 ${active}）`,
+        `subagent-model-pool: ${childId} → ${routeLabel(route)}（活跃分配 ${pool_.activeCount}）`,
       );
-      return withRoute(await next(), route);
-    },
-    { prepend: true },
-  );
+    } catch (error) {
+      // 监听器抛错会让子代理创建失败，这里必须完全吞掉。
+      ctx.logger?.warn?.(
+        `subagent-model-pool: ${agent?.id ?? "<unknown>"} 分配失败，回退父路由：${error?.message ?? String(error)}`,
+      );
+    }
+  });
+
+  ctx.effect(() => () => {
+    probing.clear();
+  }, "subagent-model-pool.teardown()");
 }

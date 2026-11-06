@@ -64,10 +64,16 @@ function stubCtx() {
   const logs = [];
   const probeCalls = [];
   const probeState = { impl: () => true };
+  class Subagents {
+    async startActivation(spec) { return spec; }
+    getProvider() { return undefined; }
+  }
+  const subagents = new Subagents();
   const scope = {
     handlers,
     logs,
     probeCalls,
+    subagents,
     set probeImpl(fn) { probeState.impl = fn; },
     ctx: {
       logger: {
@@ -75,6 +81,8 @@ function stubCtx() {
         warn: (m) => logs.push(["warn", m]),
       },
       on: (event, fn, opts) => { handlers.set(event, { fn, opts }); },
+      inject: (_services, fn) => fn(scope.ctx),
+      effect: () => {},
       // 可编程探测桩：probeImpl 决定 prepareCall 的行为，probeCalls 记录每次探测。
       get: (svc) => {
         if (svc === "llm") {
@@ -94,6 +102,7 @@ function stubCtx() {
           };
         }
         if (svc === "agents") return { get: () => undefined };
+        if (svc === "subagents") return subagents;
         return undefined;
       },
     },
@@ -104,14 +113,14 @@ function stubCtx() {
 test("apply 始终注册监听（池空时在回调里放行，便于配置热更新）", () => {
   const { ctx, handlers, logs } = stubCtx();
   apply(ctx, { enabled: true, pools: [] });
-  assert.ok(handlers.has("agent/request"), "池为空也要注册，否则改配置后无法生效");
+  assert.ok(handlers.has("agent/created"), "池为空也要注册，否则改配置后无法生效");
   assert.ok(logs.some(([, m]) => /未启用或模型池为空/.test(m)));
 });
 
 test("apply 在 enabled=false 时也注册监听但日志说明不分配", () => {
   const { ctx, handlers, logs } = stubCtx();
   apply(ctx, { enabled: false, pools: [{ provider: "c2a", model: "x" }] });
-  assert.ok(handlers.has("agent/request"));
+  assert.ok(handlers.has("agent/created"));
   assert.ok(logs.some(([, m]) => /未启用或模型池为空/.test(m)));
 });
 
@@ -121,14 +130,14 @@ test("apply 缺省 enabled 视为启用", () => {
   assert.ok(logs.some(([, m]) => /装配 1 个候选/.test(m)));
 });
 
-test("apply 注册四个监听，agent/request 带 prepend", () => {
+test("apply 注册创建期分配与生命周期监听，不再改写 agent/request", () => {
   const { ctx, handlers } = stubCtx();
   apply(ctx, { pools: [{ provider: "c2a", model: "x", maxConcurrent: 1 }] });
   assert.deepEqual(
     [...handlers.keys()].sort(),
-    ["agent/disposed", "agent/request", "subagent/end", "subagent/start"],
+    ["agent/created", "agent/disposed", "subagent/end", "subagent/start"],
   );
-  assert.deepEqual(handlers.get("agent/request").opts, { prepend: true });
+  assert.equal(handlers.has("agent/request"), false);
 });
 
 test("apply 缺省 strategy 回落到 fewest-active", () => {
@@ -185,14 +194,22 @@ test("readConfig 对 null/undefined 返回空对象", () => {
 function probeStubCtx({ failModels = [], delay = 0 } = {}) {
   const handlers = new Map();
   const logs = [];
+  const activationSpecs = [];
   let prepareCalls = 0;
   const inflightSeen = [];
+  class Subagents {
+    async startActivation(spec) { activationSpecs.push(spec); return spec; }
+    getProvider() { return undefined; }
+  }
+  const subagents = new Subagents();
   const ctx = {
     logger: {
       info: (m) => logs.push(["info", m]),
       warn: (m) => logs.push(["warn", m]),
     },
     on: (event, fn, opts) => { handlers.set(event, { fn, opts }); },
+    inject: (_services, fn) => fn(ctx),
+    effect: () => {},
     get: (svc) =>
       svc === "llm"
         ? {
@@ -211,30 +228,41 @@ function probeStubCtx({ failModels = [], delay = 0 } = {}) {
           }
         : svc === "agents"
           ? { get: () => undefined }
-          : undefined,
+          : svc === "subagents"
+            ? subagents
+            : undefined,
   };
   return {
-    ctx, handlers, logs,
+    ctx, handlers, logs, subagents, activationSpecs,
     get prepareCalls() { return prepareCalls; },
   };
 }
 
-/** 触发一次 agent/request 分配，返回注入的路由。 */
-async function allocate(ctx, handlers, childId) {
+/** 构造刚创建、尚未准备首个 step 的子代理。 */
+function childAgent(childId, options = {}) {
+  let selected;
+  const inherited = { provider: "c2a", model: "parent" };
   const agent = {
     id: childId,
+    options: { ...inherited, ...options },
     session: {
       header: { origin: "subagent", parentSession: "parent-x" },
       requestHeader: () => undefined,
+      snapshotEvents: () => [{ type: "subagent/descriptor", data: { provider: "spawn" } }],
+    },
+    model: {
+      current: () => selected ?? agent.options,
+      select: (route) => { selected = { provider: route.provider, model: route.model }; },
     },
   };
-  // 真实口径：agent/request waterfall 的流动对象是顶层 {provider, model}
-  // （dsh-agent/lib/index.js:1191 proposedConfig.provider 直读顶层）。
-  const result = await handlers.get("agent/request").fn(
-    { agent },
-    async () => ({ provider: "c2a", model: "parent" }),
-  );
-  return { provider: result?.provider, model: result?.model };
+  return { agent, selected: () => selected };
+}
+
+/** 触发创建期分配，返回实际选中的路由。 */
+async function allocate(ctx, handlers, childId, options = {}) {
+  const { agent, selected } = childAgent(childId, options);
+  await handlers.get("agent/created").fn({ agent, source: "startup" });
+  return selected() ?? { provider: agent.options.provider, model: agent.options.model };
 }
 
 test("探测通过 → 分配该候选", async () => {
@@ -266,6 +294,75 @@ test("并发分配同一候选只探测一次（in-flight 去重）", async () =
     allocate(ctx, handlers, "child-c"),
   ]);
   assert.equal(stub.prepareCalls, 1, "三个并发分配应只发一次探测");
+});
+
+test("显式指定与父路由相同也绝不覆盖", async () => {
+  const stub = probeStubCtx();
+  const { ctx, handlers, subagents, activationSpecs } = stub;
+  apply(ctx, { pools: [{ provider: "c2a", model: "free", maxConcurrent: 1 }] });
+  await subagents.startActivation({
+    provider: "spawn",
+    request: { agentOptions: { provider: "c2a", model: "parent" } },
+  });
+  const options = activationSpecs[0].request.agentOptions;
+  const routed = await allocate(ctx, handlers, "child-explicit-same", options);
+  assert.deepEqual(routed, { provider: "c2a", model: "parent" });
+  assert.equal(stub.prepareCalls, 0, "显式子代理不应触发池探测");
+});
+
+test("显式指定不同路由同样不覆盖", async () => {
+  const stub = probeStubCtx();
+  const { ctx, handlers, subagents, activationSpecs } = stub;
+  apply(ctx, { pools: [{ provider: "c2a", model: "free", maxConcurrent: 1 }] });
+  await subagents.startActivation({
+    provider: "spawn",
+    request: { agentOptions: { provider: "c2a", model: "chosen" } },
+  });
+  const routed = await allocate(
+    ctx, handlers, "child-explicit-other", activationSpecs[0].request.agentOptions,
+  );
+  assert.deepEqual(routed, { provider: "c2a", model: "chosen" });
+  assert.equal(stub.prepareCalls, 0);
+});
+
+test("显式标记拦截安装失败时停用池分配，不误覆盖", async () => {
+  const stub = probeStubCtx();
+  const { ctx, handlers } = stub;
+  // own startActivation 让安全包装拒绝安装，模拟未来内核不兼容。
+  Object.defineProperty(stub.subagents, "startActivation", {
+    value: async (spec) => spec,
+    configurable: true,
+  });
+  apply(ctx, { pools: [{ provider: "c2a", model: "free", maxConcurrent: 1 }] });
+  const routed = await allocate(ctx, handlers, "child-untracked");
+  assert.deepEqual(routed, { provider: "c2a", model: "parent" });
+  assert.equal(stub.prepareCalls, 0);
+});
+
+test("冷恢复沿用已落盘路由，不重新探测或分配", async () => {
+  const stub = probeStubCtx();
+  const { ctx, handlers } = stub;
+  apply(ctx, { pools: [{ provider: "c2a", model: "free", maxConcurrent: 1 }] });
+  const { agent, selected } = childAgent("child-resume");
+  const persisted = { provider: "c2a", model: "free" };
+  agent.session.requestHeader = () => ({ config: persisted });
+  agent.model.current = () => persisted;
+  await handlers.get("agent/created").fn({ agent, source: "resume" });
+  assert.equal(selected(), undefined);
+  assert.equal(stub.prepareCalls, 0);
+});
+
+test("fork 子代理不参与池分配", async () => {
+  const stub = probeStubCtx();
+  const { ctx, handlers } = stub;
+  apply(ctx, { pools: [{ provider: "c2a", model: "free", maxConcurrent: 1 }] });
+  const { agent, selected } = childAgent("child-fork");
+  agent.session.snapshotEvents = () => [
+    { type: "subagent/descriptor", data: { provider: "fork" } },
+  ];
+  await handlers.get("agent/created").fn({ agent, source: "startup" });
+  assert.equal(selected(), undefined);
+  assert.equal(stub.prepareCalls, 0);
 });
 
 test("探测结果 60s 后过期可重探（REJECTED_TTL）", async (t) => {
