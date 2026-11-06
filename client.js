@@ -776,15 +776,24 @@
         ".smpv-card{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:6px 9px}",
         ".smpv-cardK{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
         ".smpv-cardV{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:15px;line-height:21px;font-weight:600}",
-        ".smpv-switch{display:inline-flex;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);overflow:hidden;position:relative}",
+        ".smpv-switch{display:inline-flex;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);overflow:hidden;position:relative;background:var(--dsw-alias-bg-layer-1)}",
         // 字重固定：选中态只换背景与文字色。改字重会让文字宽度变化，
         // 切换时按钮「拉长又缩小」。
-        ".smpv-switchBtn{position:relative;border:0;background:0;padding:3px 9px;font-family:inherit;font-size:11px;line-height:16px;font-weight:500;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .16s ease,background-color .16s ease}",
-        ".smpv-switchBtn:hover:not(.on){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1)}",
-        ".smpv-switchBtn.on{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}",
+        // 选中态用品牌色实心填充 + 白字，对比强烈一眼可辨；容器边框也要看得见。
+        ".smpv-switchBtn{position:relative;border:0;background:0;padding:3px 9px;font-family:inherit;font-size:11px;line-height:16px;font-weight:500;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .16s ease,background-color .16s ease;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}",
+        ".smpv-switchBtn:hover:not(.on){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3)}",
+        ".smpv-switchBtn.on{background:var(--dsw-alias-accent,#2f6bff);color:#fff}",
+        // 选中项前的小圆点：白底上的实心点。
+        // 槽位宽度为 0，文字位置不受影响；圆点绝对定位溢出到左侧 9px。
+        // 若让它参与布局，选中/未选中宽度就不同，切换时按钮会伸缩。
+        ".smpv-switchSlot{position:relative;width:0;height:10px;flex:none}",
+        ".smpv-switchDot{position:absolute;left:-9px;top:50%;margin-top:-2px;display:block;width:4px;height:4px;border-radius:50%;background:#fff}",
         ".smpv-switchBtn:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:-2px}",
+        ".smpv-switchBtn.on:focus-visible{outline-color:var(--dsw-alias-label-primary)}",
         ".smpv-panel{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:8px 10px;animation:smpv-fade .18s ease-out}",
-        ".smpv-panelTitle{font-size:12px;line-height:18px;font-weight:600;margin:0 0 6px}",
+        ".smpv-panelTitle{font-size:12px;line-height:18px;font-weight:600;margin:0 0 6px;display:flex;align-items:center;gap:6px}",
+        // 标题里的口径标记：说明当前正在按什么统计。
+        ".smpv-modeTag{font-weight:400;font-size:10px;line-height:15px;padding:1px 5px;border-radius:999px;color:var(--dsw-alias-accent,#2f6bff);background:var(--dsw-alias-bg-layer-2)}",
         ".smpv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
         ".smpv-stack{margin:0 0 6px}",
         ".smpv-dot{width:7px;height:7px;border-radius:2px;display:inline-block;flex:none}",
@@ -1014,13 +1023,26 @@
         var labels = { tokens: "按 Token", requests: "按请求", assignments: "按分配" };
         return jsx("div", {
           className: "smpv-switch",
+          role: "group",
+          "aria-label": "统计口径",
           children: MODES.map(function (mode) {
+            var on = props.mode === mode;
             return jsx("button", {
               key: mode,
               type: "button",
-              className: "smpv-switchBtn" + (props.mode === mode ? " on" : ""),
+              className: "smpv-switchBtn" + (on ? " on" : ""),
+              "aria-pressed": on ? "true" : "false",
+              "aria-label": "按" + (mode === "tokens" ? " Token 统计" : mode === "requests" ? "请求数统计" : "分配次数统计"),
+              title: on ? "当前口径：" + labels[mode] : "切换到" + labels[mode],
               onClick: function () { props.onChange(mode); },
-              children: labels[mode]
+              children: [
+                // 选中项带一个实心圆点，不只靠底色区分。
+                jsx("span", {
+                  className: "smpv-switchSlot",
+                  children: on ? jsx("i", { className: "smpv-switchDot" }) : null
+                }),
+                labels[mode]
+              ]
             });
           })
         });
@@ -1050,10 +1072,18 @@
             style: { width: (route.ratio * 100).toFixed(2) + "%", background: TONE_COLORS[route.tone] }
           });
         });
+        var modeText = props.mode === "requests" ? "按请求数" : props.mode === "assignments" ? "按分配次数" : "按 Token";
         return jsx("div", {
           className: "smpv-panel",
           children: [
-            jsx("h3", { className: "smpv-panelTitle", children: "路由分布" }),
+            jsx("h3", {
+              className: "smpv-panelTitle",
+              children: [
+                "路由分布",
+                // 标题里回显当前口径，不看按钮也知道正在按什么统计。
+                jsx("span", { className: "smpv-modeTag", children: modeText })
+              ]
+            }),
             rows.length === 0
               ? jsx("div", { className: "smpv-empty", children: "还没有分配记录。" })
               : jsx("div", {
