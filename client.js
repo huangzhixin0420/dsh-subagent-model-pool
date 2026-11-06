@@ -753,6 +753,11 @@
 
       var STATS_CSS = [
         ".smpv-page{display:flex;flex-direction:column;gap:12px;padding:16px 20px;min-width:0}",
+        // 页面自己滚：DSH 的全局面板槽（.pI_x6G_mainPanel → centerCol → frame）
+        // 整条链都是 overflow:hidden，document 也不滚——内容超出视口就直接被裁。
+        // 参照 dsh-client-ui-plugin-manager 的 .X_2TxG_page 做法：
+        // 根容器 flex:1 + min-height:0 + overflow-y:auto。
+        ".smpv-page{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}",
         ".smpv-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}",
         ".smpv-title{margin:0;font-size:14px;line-height:20px;font-weight:600}",
         ".smpv-sub{margin:2px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
@@ -842,7 +847,9 @@
         // ===== 移动端 H5 适配（沿用 DSH 前端的 width<=767px / width<=480px 断点）=====
         // 窄屏：标题区竖排、按钮组占满一行、两栏面板改单栏、卡片改 2 列。
         "@media (width<=767px){",
-        ".smpv-page{padding:12px 12px 16px;gap:10px}",
+        // 底部留足内边距：最后一��会话卡片不能被视口底边裁掉。
+        // max() 让 iPhone 底部横条（safe-area-inset-bottom）与普通手机都能生效。
+        ".smpv-page{padding:12px 12px max(28px,calc(env(safe-area-inset-bottom,0px) + 16px));gap:10px}",
         ".smpv-head{flex-direction:column;align-items:stretch;gap:8px}",
         ".smpv-actions{justify-content:space-between;gap:8px}",
         ".smpv-switch{flex:1;display:flex}",
