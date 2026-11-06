@@ -562,7 +562,16 @@ export function apply(ctx, config) {
       fetch: () => {
         const pool_ = currentPool();
         const live = pool_?.snapshot() ?? [];
-        return Response.json(stats.snapshot(live), {
+        // health：把「分配链路是否真的在工作」摊到 API 上。
+        // 没有它，池分配失效时页面只会安静地显示「空闲」，看不出是没分配
+        // 还是真的没人用。
+        const health = {
+          poolReady: pool_ !== undefined,
+          explicitTrackingReady,
+          activeCount: pool_?.activeCount ?? 0,
+          trackedSessions: stats.snapshot().sessions.length,
+        };
+        return Response.json({ ...stats.snapshot(live), health }, {
           headers: { "cache-control": "no-store" },
         });
       },
