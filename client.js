@@ -45,7 +45,7 @@
         ".smp-group:first-child{border-top:0;margin-top:0;padding-top:0}",
         ".smp-provider{color:var(--dsw-alias-label-tertiary);font-size:11px;font-weight:500;padding:2px 6px}",
         ".smp-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;border-radius:var(--dsw-radius-md);padding:5px 6px;min-width:0}",
-        ".smp-row:hover{background:var(--dsw-alias-bg-layer-4)}",
+        ".smp-row:hover{background:var(--dsw-alias-interactive-bg-hover)}",
         ".smp-rowMain{min-width:0;display:grid;gap:1px;cursor:pointer}",
         ".smp-model{color:var(--dsw-alias-label-primary);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
         ".smp-route{color:var(--dsw-alias-label-tertiary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
@@ -58,7 +58,7 @@
         ".smp-strategy{display:grid;gap:6px;margin-top:12px}",
         ".smp-strategyRow{display:flex;align-items:center;gap:10px}",
         ".smp-strategyBtn{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:12px;cursor:pointer}",
-        ".smp-strategyBtn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-4)}",
+        ".smp-strategyBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}",
         ".smp-strategyBtn:disabled{opacity:.5;cursor:not-allowed}",
         ".smp-strategyChevron{width:12px;height:12px;color:var(--dsw-alias-label-tertiary)}",
         ".smp-strategyItem{display:grid;gap:1px;min-width:220px}",
@@ -766,7 +766,7 @@
         ".smpv-actions{display:flex;align-items:center;gap:8px}",
         // 刷新按钮：加载态用旋转图标，文字不变——换文字会改变按钮宽度。
         ".smpv-refresh{display:inline-flex;align-items:center;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;padding:3px 8px;cursor:pointer;transition:background-color .16s ease,color .16s ease,border-color .16s ease}",
-        ".smpv-refresh:hover{background:var(--dsw-alias-bg-layer-4);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}",
+        ".smpv-refresh:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}",
         ".smpv-refresh:active{transform:translateY(.5px)}",
         ".smpv-refresh[aria-busy=true]{cursor:progress}",
         ".smpv-refresh:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
@@ -798,16 +798,17 @@
         // 切换时按钮「拉长又缩小」。
         ".smpv-switchBtn{position:relative;border:0;background:0;padding:5px 11px;font-family:inherit;font-size:11px;line-height:16px;font-weight:500;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .16s ease,background-color .16s ease,box-shadow .16s ease;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-radius:var(--dsw-radius-md)}",
         ".smpv-switchBtn:hover:not(.on){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
-        // 选中态反色（浅底深字），同 macOS UISegmentedControl。
-        // 深色主题下实底深字对比远强于「稍亮一点的同色底」：
-        // bg-layer-3 只有 rgb(44,44,46)，比页面底 rgb(21,21,23) 亮得看不太出来。
-        // 文字用固定深色 #1a1a1c：浅色主题下 bg-base 是白色，白底白字会看不见。
-        ".smpv-switchBtn.on{background:var(--dsw-alias-label-primary);color:#1a1a1c;box-shadow:0 1px 2px rgba(0,0,0,.28)}",
+        // 选中态反色（浅底深字、深底浅字），同 macOS UISegmentedControl。
+        // 背景取 label-primary、文字取 bg-base——两个变量在任何主题下都是
+        // 互为反色的对：深色主题 label-primary 是近白、bg-base 是近黑；
+        // 浅色主题正好倒过来。写死任何一端都会在另一个主题下失效
+        // （之前写死 color:#1a1a1c，浅色主题下就是黑底黑字看不见）。
+        ".smpv-switchBtn.on{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);box-shadow:0 1px 2px rgba(0,0,0,.18)}",
         ".smpv-switchBtn:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
         ".smpv-panel{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:8px 10px;animation:smpv-fade .18s ease-out}",
         ".smpv-panelTitle{font-size:12px;line-height:18px;font-weight:600;margin:0 0 6px;display:flex;align-items:center;gap:6px}",
         // 标题里的口径标记：说明当前正在按什么统计。
-        ".smpv-modeTag{font-weight:400;font-size:10px;line-height:15px;padding:1px 5px;border-radius:999px;color:var(--dsw-alias-accent,#2f6bff);background:var(--dsw-alias-bg-layer-2)}",
+        ".smpv-modeTag{font-weight:400;font-size:10px;line-height:15px;padding:1px 5px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}",
         ".smpv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
         ".smpv-stack{margin:0 0 6px}",
         ".smpv-dot{width:7px;height:7px;border-radius:2px;display:inline-block;flex:none}",
@@ -816,7 +817,7 @@
         ".smpv-table .smpv-routeLabel{font-family:inherit;font-size:11px;color:var(--dsw-alias-label-secondary)}",
         ".smpv-routeLabel b{font-weight:600}",
         ".smpv-routeLabel span{color:var(--dsw-alias-label-tertiary)}",
-        ".smpv-bar{height:8px;border-radius:2px;background:var(--dsw-alias-bg-layer-2);display:flex;overflow:hidden}",
+        ".smpv-bar{height:8px;border-radius:2px;background:var(--dsw-alias-interactive-bg-hover);display:flex;overflow:hidden}",
         ".smpv-barI{display:block;height:100%}",
         // 回退段与池内段之间留缝，视觉上分开。
         ".smpv-barGap{display:block;width:2px;height:100%;flex:none;background:var(--dsw-alias-bg-base,#151517)}",
@@ -828,7 +829,9 @@
         ".smpv-routeNums b{color:var(--dsw-alias-label-primary);font-weight:600}",
         ".smpv-slotRow{display:grid;grid-template-columns:minmax(120px,168px) 44px 1fr auto;gap:8px;align-items:center;padding:3px 0}",
         ".smpv-slots{display:flex;gap:2px;align-items:center;flex-wrap:wrap}",
-        ".smpv-slot{width:13px;height:13px;border-radius:3px;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1)}",
+        ".smpv-slot{width:13px;height:13px;border-radius:3px;background:var(--dsw-alias-interactive-bg-hover);border:.5px solid var(--dsw-alias-border-l2)}",
+        // 空闲槽位：浅底 + 淡描边。浅色主题下 bg-layer 全是白色，只靠填充看不见。
+        ".smpv-slot.idle{border-color:var(--dsw-alias-label-tertiary);opacity:.45}",
         ".smpv-slot.busy{background:var(--dsw-alias-accent,#2f6bff);border-color:transparent}",
         ".smpv-slot.hot{background:var(--dsw-alias-state-warning-primary,#c77d0a);border-color:transparent}",
         ".smpv-slot.down{background:var(--dsw-alias-state-error-primary,#d5393a);border-color:transparent}",
@@ -1138,7 +1141,7 @@
         if (poolRows.length === 0 && fbRows.length === 0) {
           return jsx("div", {
             className: "smpv-bar",
-            children: jsx("i", { className: "smpv-barI", style: { width: "100%", background: "var(--dsw-alias-bg-layer-2)" } })
+            children: jsx("i", { className: "smpv-barI", style: { width: "100%", background: "var(--dsw-alias-interactive-bg-hover)" } })
           });
         }
         var seg = function (list, cls) {
