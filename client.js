@@ -757,17 +757,33 @@
         ".smpv-title{margin:0;font-size:14px;line-height:20px;font-weight:600}",
         ".smpv-sub{margin:2px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
         ".smpv-actions{display:flex;align-items:center;gap:8px}",
-        ".smpv-refresh{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;padding:3px 8px;cursor:pointer}",
-        ".smpv-refresh:hover:not(:disabled){background:var(--dsw-alias-bg-layer-4)}",
-        ".smpv-refresh:disabled{opacity:.5;cursor:not-allowed}",
+        // 刷新按钮：加载态用旋转图标，文字不变——换文字会改变按钮宽度。
+        ".smpv-refresh{display:inline-flex;align-items:center;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;padding:3px 8px;cursor:pointer;transition:background-color .16s ease,color .16s ease,border-color .16s ease}",
+        ".smpv-refresh:hover:not(:disabled){background:var(--dsw-alias-bg-layer-4);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}",
+        ".smpv-refresh:active:not(:disabled){transform:translateY(.5px)}",
+        ".smpv-refresh:disabled{cursor:default;color:var(--dsw-alias-label-tertiary)}",
+        ".smpv-refresh:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
+        // spinner 绝对定位在文字左侧的固定槽位里——参与布局会把按钮撑宽 18px。
+        ".smpv-refreshSlot{position:relative;width:0;height:11px;flex:none}",
+        ".smpv-spin{position:absolute;left:0;top:0;width:11px;height:11px;border-radius:50%;border:1.5px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-accent,#2f6bff);animation:smpv-spin .7s linear infinite}",
+        "@keyframes smpv-spin{to{transform:rotate(360deg)}}",
+        "@media (prefers-reduced-motion:reduce){.smpv-spin{animation-duration:2.4s}}",
+        // 数据刷新时整块淡入，避免生硬替换。
+        ".smpv-body{animation:smpv-fade .22s ease-out}",
+        "@keyframes smpv-fade{from{opacity:.55}to{opacity:1}}",
+        "@media (prefers-reduced-motion:reduce){.smpv-body,.smpv-panel,.smpv-cards{animation:none}}",
         ".smpv-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px}",
         ".smpv-card{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:6px 9px}",
         ".smpv-cardK{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
         ".smpv-cardV{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:15px;line-height:21px;font-weight:600}",
-        ".smpv-switch{display:inline-flex;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);overflow:hidden}",
-        ".smpv-switchBtn{border:0;background:0;padding:3px 9px;font-family:inherit;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);cursor:pointer}",
-        ".smpv-switchBtn.on{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600}",
-        ".smpv-panel{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:8px 10px}",
+        ".smpv-switch{display:inline-flex;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);overflow:hidden;position:relative}",
+        // 字重固定：选中态只换背景与文字色。改字重会让文字宽度变化，
+        // 切换时按钮「拉长又缩小」。
+        ".smpv-switchBtn{position:relative;border:0;background:0;padding:3px 9px;font-family:inherit;font-size:11px;line-height:16px;font-weight:500;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .16s ease,background-color .16s ease}",
+        ".smpv-switchBtn:hover:not(.on){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1)}",
+        ".smpv-switchBtn.on{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}",
+        ".smpv-switchBtn:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:-2px}",
+        ".smpv-panel{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:8px 10px;animation:smpv-fade .18s ease-out}",
         ".smpv-panelTitle{font-size:12px;line-height:18px;font-weight:600;margin:0 0 6px}",
         ".smpv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
         ".smpv-stack{margin:0 0 6px}",
@@ -802,7 +818,8 @@
         ".smpv-table tr.parent td:first-child{font-weight:500}",
         ".smpv-sessionTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
         ".smpv-kind{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px}",
-        ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px}",
+        // 数字在口径切换时突变，给一个轻微淡入，避免生硬跳变。
+        ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;transition:opacity .14s ease-out}",
         ".smpv-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;padding:12px 6px;text-align:center}",
         ".smpv-err{color:var(--dsw-alias-state-error-primary,#d5393a);font-size:12px;line-height:18px;padding:12px 6px}",
         ".smpv-foot{display:flex;gap:12px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}"
@@ -1171,7 +1188,14 @@
                       className: "smpv-refresh",
                       disabled: state.loading,
                       onClick: state.reload,
-                      children: state.loading ? "刷新中…" : "刷新"
+                      "aria-label": "刷新统计",
+                      children: [
+                        jsx("span", {
+                          className: "smpv-refreshSlot",
+                          children: state.loading ? jsx("i", { className: "smpv-spin" }) : null
+                        }),
+                        "刷新"
+                      ]
                     })
                   ]
                 })
@@ -1179,25 +1203,33 @@
             }),
             state.error ? jsx("div", { className: "smpv-err", children: state.error }) : null,
             jsx("div", {
-              className: "smpv-cards",
+              className: "smpv-body",
+              // key 随数据版本变化：新数据到达时整块淡入，不生硬替换。
+              key: state.version,
               children: [
-                jsx(StatCard, { label: "分配次数", value: formatCount(totals === null ? 0 : totals.assignments) }),
-                jsx(StatCard, { label: "模型请求", value: formatCount(totals === null ? 0 : totals.requests) }),
-                jsx(StatCard, { label: "未缓存输入", value: formatTokens(tokens === null ? 0 : tokens.inputTokens) }),
-                jsx(StatCard, { label: "输出", value: formatTokens(tokens === null ? 0 : tokens.outputTokens) }),
-                jsx(StatCard, { label: "缓存读", value: formatTokens(tokens === null ? 0 : tokens.cacheReadTokens) }),
-                jsx(StatCard, { label: "缓存写", value: formatTokens(tokens === null ? 0 : tokens.cacheWriteTokens) }),
-                jsx(StatCard, { label: "回退父路由", value: formatCount(totals === null ? 0 : totals.fallbacks) })
+                jsx("div", {
+                  className: "smpv-cards",
+                  children: [
+                    jsx(StatCard, { label: "分配次数", value: formatCount(totals === null ? 0 : totals.assignments) }),
+                    jsx(StatCard, { label: "模型请求", value: formatCount(totals === null ? 0 : totals.requests) }),
+                    jsx(StatCard, { label: "未缓存输入", value: formatTokens(tokens === null ? 0 : tokens.inputTokens) }),
+                    jsx(StatCard, { label: "输出", value: formatTokens(tokens === null ? 0 : tokens.outputTokens) }),
+                    jsx(StatCard, { label: "缓存读", value: formatTokens(tokens === null ? 0 : tokens.cacheReadTokens) }),
+                    jsx(StatCard, { label: "缓存写", value: formatTokens(tokens === null ? 0 : tokens.cacheWriteTokens) }),
+                    jsx(StatCard, { label: "回退父路由", value: formatCount(totals === null ? 0 : totals.fallbacks) })
+                  ]
+                }),
+                jsx("div", {
+                  className: "smpv-grid",
+                  children: [
+                    // key 含口径：切换口径时整块重挂载，触发淡入动画。
+                    jsx(RoutePanel, { key: "route-" + mode, ranked: ranked, mode: mode }),
+                    jsx(SlotPanel, { routes: snapshot === null ? [] : snapshot.routes })
+                  ]
+                }),
+                jsx(SessionTable, { sessions: snapshot === null ? [] : snapshot.sessions })
               ]
             }),
-            jsx("div", {
-              className: "smpv-grid",
-              children: [
-                jsx(RoutePanel, { ranked: ranked, mode: mode }),
-                jsx(SlotPanel, { routes: snapshot === null ? [] : snapshot.routes })
-              ]
-            }),
-            jsx(SessionTable, { sessions: snapshot === null ? [] : snapshot.sessions }),
             jsx("div", {
               className: "smpv-foot",
               children: [
@@ -1223,6 +1255,8 @@
         var error = null;
         var loading = false;
         var controller = null;
+        // 数据版本号：每次新快照到达递增。渲染层用它当 key，让整块淡入。
+        var version = 0;
         var notify = function () {
           listeners.forEach(function (listener) { listener(); });
         };
@@ -1239,13 +1273,14 @@
               error = "读取统计失败：宿主接口不可用。";
             } else {
               snapshot = value;
+              version += 1;
             }
             notify();
           });
         };
         return {
           getSnapshot: function () {
-            return { snapshot: snapshot, error: error, loading: loading };
+            return { snapshot: snapshot, error: error, loading: loading, version: version };
           },
           subscribe: function (listener) {
             listeners.push(listener);
@@ -1279,6 +1314,7 @@
             snapshot: state[0].snapshot,
             error: state[0].error,
             loading: state[0].loading,
+            version: state[0].version,
             mode: modeState[0],
             setMode: modeState[1],
             reload: function () { source.load(); }
