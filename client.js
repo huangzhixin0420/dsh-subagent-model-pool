@@ -879,6 +879,14 @@
         ".smpv-sessionTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}",
         // 发起会话：降一档字色——它是上下文，不是主角。
         ".smpv-parentTitle .smpv-sessionTitle{font-weight:400;color:var(--dsw-alias-label-tertiary)}",
+                // 运行状态点：进行中带脉冲，已完成是空心圈。用伪元素挂在名字前面，
+        // 这样不占列宽——8 列已经很挤了。
+        ".smpv-run{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%}",
+        ".smpv-run:before{content:'';width:5px;height:5px;border-radius:50%;flex:none;box-sizing:border-box}",
+        ".smpv-run.running:before{background:var(--dsw-alias-state-success-primary,#1a8a4a);box-shadow:0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 22%, transparent)}",
+        ".smpv-run.done:before{border:.5px solid var(--dsw-alias-border-l2);background:transparent}",
+        "@media (prefers-reduced-motion:no-preference){.smpv-run.running:before{animation:smpv-pulse 2.4s ease-in-out infinite}}",
+        "@keyframes smpv-pulse{0%,100%{box-shadow:0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 22%, transparent)}50%{box-shadow:0 0 0 3.5px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 10%, transparent)}}",
         ".smpv-sessionSub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary)}",
         ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
         // 请求数是这行最有信息量的数字，给它主字色。
@@ -1317,8 +1325,12 @@
                             title: [rawTitle, subTitle, session.sessionId].filter(Boolean).join(" · "),
                             children: [
                               jsx("span", {
-                                className: "smpv-sessionTitle",
-                                children: rawTitle
+                                className: "smpv-run " + (session.state === "running" ? "running" : "done"),
+                                title: session.state === "running" ? "进行中" : "已完成",
+                                children: jsx("span", {
+                                  className: "smpv-sessionTitle",
+                                  children: rawTitle
+                                })
                               }),
                               subTitle === null
                                 ? null

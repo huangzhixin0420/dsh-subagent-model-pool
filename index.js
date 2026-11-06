@@ -285,6 +285,17 @@ export function apply(ctx, config) {
         stats.rememberTitle(session, event.data?.title);
         return;
       }
+      if (type === "subagent/start" || type === "subagent/end") {
+        // 子代理生命周期。这两个事件走 cordis 事件总线（createLifecycleEmitter），
+        // 不落 session log，所以可能收不到——PoolStats 里有启发式兜底。
+        const childId = event.data?.id;
+        if (typeof childId === "string") {
+          const now = Date.now();
+          if (type === "subagent/start") stats.rememberRunStart(childId, now);
+          else stats.rememberRunEnd(childId, event.data?.stopReason, now);
+        }
+        return;
+      }
       if (type === "subagent/catalog") {
         // 子代理的名字：父会话在派发子代理时记下 `label`，值是调用方给的
         // description（「核实主会话模型池可行性」这种）。DSH 自己的子代理下拉

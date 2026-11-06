@@ -186,6 +186,37 @@ test("空 label 和空 childId 都不记", () => {
   assert.equal(stats.labelOfSession({ id: "c1" }), undefined);
 });
 
+test("subagent/end 之后状态是 done，之前是 running", () => {
+  const stats = new PoolStats();
+  const child = sessionOf("c1", { parentSession: "p1" });
+  stats.rememberRunStart("c1", 1000);
+  stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 10, outputTokens: 1 }, 1000);
+  let row = stats.snapshot().sessions.find((s) => s.sessionId === "c1");
+  assert.equal(row.state, "running");
+  stats.rememberRunEnd("c1", "completed", 2000);
+  row = stats.snapshot().sessions.find((s) => s.sessionId === "c1");
+  assert.equal(row.state, "done");
+  assert.equal(row.stopReason, "completed");
+});
+
+test("没有生命周期事件时按最后活动时间推断", () => {
+  const stats = new PoolStats();
+  const child = sessionOf("c1", { parentSession: "p1" });
+  const old = Date.now() - 10_000;
+  stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 10, outputTokens: 1 }, old);
+  // 10 秒前刚有请求 → 还在进行中
+  assert.equal(stats.snapshot().sessions[0].state, "running");
+  // 2 分钟前 → 判定已完成
+  assert.equal(stats.stateOfSession("c1", Date.now() - 120_000, Date.now()), "done");
+});
+
+test("生命周期事件优先于时间推断", () => {
+  const stats = new PoolStats();
+  stats.rememberRunEnd("c1", "completed", Date.now());
+  // 即使刚刚还有活动，明确结束就以结束为准
+  assert.equal(stats.stateOfSession("c1", Date.now(), Date.now()), "done");
+});
+
 test("父会话没有标题时 parentTitle 为 undefined", () => {
   const stats = new PoolStats();
   const child = sessionOf("c1", { parentSession: "p1" });
