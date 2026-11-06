@@ -753,148 +753,181 @@
         fb: "var(--dsw-alias-label-tertiary,#adb2b8)"
       };
 
+      // 设计系统（照 DSH 前端的变量与断点写，不自造颜色）：
+      //   字号阶梯 22 / 13 / 11 / 10 —— 主数字、区块标题、正文、眉题标签
+      //   间距节奏 4 / 8 / 12 / 20
+      //   层级靠字号与留白建立，不靠边框——边框加多了就碎、就显得业余
+      //   任何颜色只用 DSH 别名变量，双主题自动成立
       var STATS_CSS = [
-        ".smpv-page{display:flex;flex-direction:column;gap:12px;padding:16px 20px;min-width:0}",
         // 页面自己滚：DSH 的全局面板槽（.pI_x6G_mainPanel → centerCol → frame）
         // 整条链都是 overflow:hidden，document 也不滚——内容超出视口就直接被裁。
-        // 参照 dsh-client-ui-plugin-manager 的 .X_2TxG_page 做法：
-        // 根容器 flex:1 + min-height:0 + overflow-y:auto。
-        ".smpv-page{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}",
-        ".smpv-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}",
-        ".smpv-head .smpv-actions{margin-left:auto}",
-        ".smpv-title{margin:0;font-size:14px;line-height:20px;font-weight:600}",
-        ".smpv-actions{display:flex;align-items:center;gap:8px}",
-        // 刷新按钮：加载态用旋转图标，文字不变——换文字会改变按钮宽度。
-        ".smpv-refresh{display:inline-flex;align-items:center;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;padding:3px 8px;cursor:pointer;transition:background-color .16s ease,color .16s ease,border-color .16s ease}",
-        ".smpv-refresh:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}",
+                // 三级色阶：用 label-primary 按比例混透明，两个主题自动成立
+        // （label-primary 在浅色主题是近黑、深色主题是近白，混出来分别是叠深与叠亮）。
+        // interactive-bg-hover 只有 6% 强度，叠在近白的页面底上只差 7/255，等于没画。
+        ".smpv-page{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding:18px 24px 24px;--smpv-tint-1:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);--smpv-tint-2:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);--smpv-tint-3:color-mix(in srgb,var(--dsw-alias-label-primary) 13%,transparent)}",
+        // 标题区：标题压在左、控件压在右，底部一条极淡分隔线收口。
+        ".smpv-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:.5px solid var(--dsw-alias-border-l1)}",
+        ".smpv-title{margin:0;font-size:13px;line-height:18px;font-weight:600;letter-spacing:.01em;color:var(--dsw-alias-label-primary)}",
+        ".smpv-actions{display:flex;align-items:center;gap:10px;margin-left:auto}",
+
+        // ===== 分段控件 =====
+        // 容器无边框无底色，每个按钮自带完整圆角 pill——容器加圆角再 overflow:hidden
+        // 会把选中块的直角裁成半方半圆。
+        ".smpv-switch{display:inline-flex;align-items:center;gap:2px;position:relative}",
+        // 字重固定 500：选中态只换底色与字色。改字重会改变文字宽度，
+        // 切换时按钮「拉长又缩小」（踩过两次）。
+        ".smpv-switchBtn{position:relative;border:0;background:0;padding:5px 11px;font-family:inherit;font-size:11px;line-height:16px;font-weight:500;color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:color .16s ease,background-color .16s ease;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-radius:999px}",
+        ".smpv-switchBtn:hover:not(.on){color:var(--dsw-alias-label-primary);background:var(--smpv-tint-2)}",
+        // 选中态：DSH 侧栏选中项的语言——淡底 + 主字色。不用反色（浅色主题下会变纯黑块，
+        // 在一堆白卡片里视觉重量过重），也不用品牌实心（过于抢眼，和进度条抢注意力）。
+        ".smpv-switchBtn.on{background:var(--smpv-tint-3);color:var(--dsw-alias-label-primary);font-weight:500}",
+        ".smpv-switchBtn:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
+
+        // ===== 刷新按钮 =====
+        ".smpv-refresh{display:inline-flex;align-items:center;border:.5px solid var(--dsw-alias-border-l2);border-radius:999px;background:0;color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;font-weight:500;padding:5px 12px;cursor:pointer;transition:background-color .16s ease,color .16s ease,border-color .16s ease}",
+        ".smpv-refresh:hover{background:var(--smpv-tint-2);color:var(--dsw-alias-label-primary)}",
         ".smpv-refresh:active{transform:translateY(.5px)}",
         ".smpv-refresh[aria-busy=true]{cursor:progress}",
         ".smpv-refresh:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
-        // spinner 绝对定位在文字左侧的固定槽位里——参与布局会把按钮撑宽 18px。
+        // spinner 放在零宽槽位里绝对定位——参与布局会把按钮撑宽 18px。
         ".smpv-refreshSlot{position:relative;width:0;height:12px;flex:none}",
-        // 外层负责淡入淡出，内层负责旋转：两层分开，transform 不互相打架。
-        ".smpv-spinWrap{position:absolute;left:0;top:0;width:12px;height:12px;opacity:0;transform:scale(.7);transition:opacity .2s ease-out,transform .2s cubic-bezier(.2,.8,.3,1)}",
+        // 外层淡入淡出、内层旋转：两层分开，transform 不互相打架。
+        ".smpv-spinWrap{position:absolute;left:5px;top:0;width:12px;height:12px;opacity:0;transform:scale(.7);transition:opacity .2s ease-out,transform .2s cubic-bezier(.2,.8,.3,1)}",
         ".smpv-spinWrap[data-on=true]{opacity:1;transform:scale(1)}",
-        // 匀速 + 1 秒周期：线性是唯一没有顿挫感的旋转曲线，周期太快会显得急促。
+        // 匀速 1 秒一圈：线性是唯一没有顿挫感的旋转曲线。
         ".smpv-spin{display:block;width:12px;height:12px;border-radius:50%;border:1.5px solid transparent;border-top-color:var(--dsw-alias-accent,#2f6bff);border-right-color:var(--dsw-alias-accent,#2f6bff);animation:smpv-spin 1s linear infinite}",
         "@keyframes smpv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}",
-        // 减弱动效偏好：改成极慢的呼吸，不旋转。
         "@media (prefers-reduced-motion:reduce){.smpv-spin{animation:smpv-pulse 2.4s ease-in-out infinite;border-right-color:transparent}}",
         "@keyframes smpv-pulse{0%,100%{opacity:.35}50%{opacity:1}}",
         "@media (prefers-reduced-motion:reduce){.smpv-spinWrap{transition:none}}",
+
         // 数据刷新时整块淡入，避免生硬替换。
-        ".smpv-body{animation:smpv-fade .28s cubic-bezier(.2,.7,.3,1)}",
+        ".smpv-body{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;animation:smpv-fade .28s cubic-bezier(.2,.7,.3,1)}",
         "@keyframes smpv-fade{from{opacity:.35}to{opacity:1}}",
-        "@media (prefers-reduced-motion:reduce){.smpv-body,.smpv-panel,.smpv-cards{animation:none}}",
-        ".smpv-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px}",
-        ".smpv-card{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:6px 9px}",
-        ".smpv-cardK{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
-        ".smpv-cardV{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:15px;line-height:21px;font-weight:600}",
-        // 分段控件：容器无边框无底色，每个按钮自带完整圆角 pill。
-        // 之前用「容器圆角 + 选中项直角蓝块」，蓝块被容器 overflow:hidden 裁切，
-        // 左角方、右角圆，形状不对称；圆点还顶在容器边框上像缺口。
-        ".smpv-switch{display:inline-flex;align-items:center;gap:3px;position:relative}",
-        // 字重固定：选中态只换背景与文字色。改字重会让文字宽度变化，
-        // 切换时按钮「拉长又缩小」。
-        ".smpv-switchBtn{position:relative;border:0;background:0;padding:5px 11px;font-family:inherit;font-size:11px;line-height:16px;font-weight:500;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .16s ease,background-color .16s ease,box-shadow .16s ease;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-radius:var(--dsw-radius-md)}",
-        ".smpv-switchBtn:hover:not(.on){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
-        // 选中态反色（浅底深字、深底浅字），同 macOS UISegmentedControl。
-        // 背景取 label-primary、文字取 bg-base——两个变量在任何主题下都是
-        // 互为反色的对：深色主题 label-primary 是近白、bg-base 是近黑；
-        // 浅色主题正好倒过来。写死任何一端都会在另一个主题下失效
-        // （之前写死 color:#1a1a1c，浅色主题下就是黑底黑字看不见）。
-        ".smpv-switchBtn.on{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);box-shadow:0 1px 2px rgba(0,0,0,.18)}",
-        ".smpv-switchBtn:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
-        ".smpv-panel{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:8px 10px;animation:smpv-fade .18s ease-out}",
-        ".smpv-panelTitle{font-size:12px;line-height:18px;font-weight:600;margin:0 0 6px;display:flex;align-items:center;gap:6px}",
-        // 标题里的口径标记：说明当前正在按什么统计。
-        ".smpv-modeTag{font-weight:400;font-size:10px;line-height:15px;padding:1px 5px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}",
-        ".smpv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
-        ".smpv-stack{margin:0 0 6px}",
-        ".smpv-dot{width:7px;height:7px;border-radius:2px;display:inline-block;flex:none}",
-        ".smpv-route{display:grid;grid-template-columns:7px minmax(112px,160px) auto 1fr auto;gap:8px;align-items:center;padding:3px 0}",
-        ".smpv-routeLabel{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-        ".smpv-table .smpv-routeLabel{font-family:inherit;font-size:11px;color:var(--dsw-alias-label-secondary)}",
-        ".smpv-routeLabel b{font-weight:600}",
+        "@media (prefers-reduced-motion:reduce){.smpv-body,.smpv-cards,.smpv-panel{animation:none}}",
+
+        // ===== 指标条 =====
+        // 四组指标装进一个整体容器，格间用极淡竖线分隔。
+        // 不用「八张等宽小卡片」——那样每个数字权重相同，看不出主次，是最典型的业余感来源。
+        ".smpv-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:1fr;margin:20px 0;border-radius:12px;border:.5px solid var(--dsw-alias-border-l2);overflow:hidden}",
+        ".smpv-card{padding:12px 16px;min-width:0;position:relative}",
+        // 竖分隔线：用伪元素画，不影响 grid 列宽。
+        ".smpv-card+.smpv-card:before{content:'';position:absolute;left:0;top:12px;bottom:12px;border-left:.5px solid var(--dsw-alias-border-l2)}",
+        ".smpv-cardK{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;font-weight:500;letter-spacing:.04em;margin-bottom:5px}",
+        // 主数字 22px：仪表盘的重点必须一眼看到，15px 撑不起来。
+        ".smpv-cardV{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:22px;line-height:26px;font-weight:600;letter-spacing:-.01em;color:var(--dsw-alias-label-primary)}",
+        // 副文本把细项并进同一格，避免拆成一堆等权重的小卡。
+        // 副文本固定两行高：Token 格四项、异常格两项，高度不一致会让指标条底部参差。
+        ".smpv-cardSub{margin-top:4px;min-height:28px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px}",
+        // 两列微网格：四项排成 2×2，比一行塞四项换行更整齐。
+        ".smpv-buckets{display:grid;grid-template-columns:auto auto;gap:0 10px;justify-content:start}",
+        ".smpv-buckets>span{white-space:nowrap;font-variant-numeric:tabular-nums}",
+
+        // ===== 区块 =====
+        // 无边框、无底色，靠眉题 + 留白分区。加框会让每个区块都变成盒子，页面就碎了。
+        ".smpv-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;margin-bottom:20px}",
+        ".smpv-panel{min-width:0;animation:smpv-fade .18s ease-out}",
+        // 眉题：小、淡、带字距——典型的仪表盘分区标题。
+        ".smpv-panelTitle{font-size:10px;line-height:14px;font-weight:600;letter-spacing:.06em;color:var(--dsw-alias-label-tertiary);margin:0 0 10px;display:flex;align-items:center;gap:8px}",
+        ".smpv-modeTag{font-weight:500;font-size:9px;line-height:14px;letter-spacing:0;padding:0 6px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--smpv-tint-2)}",
+
+        // ===== 路由分布 =====
+        ".smpv-stack{margin:0 0 10px}",
+        // 轨道加淡描边：浅色主题下 bg-layer 全是白色，纯填充在白卡片上看不见。
+        ".smpv-bar{height:6px;border-radius:999px;background:var(--smpv-tint-2);display:flex;overflow:hidden}",
+        ".smpv-barI{display:block;height:100%;transition:width .3s cubic-bezier(.2,.8,.3,1)}",
+        ".smpv-barGap{display:block;width:2px;height:100%;flex:none;background:var(--dsw-alias-bg-base,#fff)}",
+        ".smpv-barI.fb{opacity:.6}",
+        ".smpv-route{display:grid;grid-template-columns:8px minmax(0,1fr) auto auto;gap:9px;align-items:center;padding:4px 0}",
+        ".smpv-dot{width:8px;height:8px;border-radius:2px;display:inline-block;flex:none}",
+        ".smpv-routeLabel{font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}",
+        ".smpv-routeLabel b{font-weight:600;font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace)}",
         ".smpv-routeLabel span{color:var(--dsw-alias-label-tertiary)}",
-        ".smpv-bar{height:8px;border-radius:2px;background:var(--dsw-alias-interactive-bg-hover);display:flex;overflow:hidden}",
-        ".smpv-barI{display:block;height:100%}",
-        // 回退段与池内段之间留缝，视觉上分开。
-        ".smpv-barGap{display:block;width:2px;height:100%;flex:none;background:var(--dsw-alias-bg-base,#151517)}",
-        ".smpv-barI.fb{opacity:.75}",
-        // 回退路由行：灰化 + 标签，与池内路由区分。
-        ".smpv-route.fallback .smpv-routeLabel{color:var(--dsw-alias-label-tertiary)}",
-        ".smpv-fbTag{font-size:10px;line-height:15px;padding:0 4px;border-radius:3px;color:var(--dsw-alias-label-tertiary);border:.5px solid var(--dsw-alias-border-l1);flex:none}",
-        ".smpv-routeNums{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);text-align:right;white-space:nowrap}",
+        ".smpv-routeNums{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);text-align:right;white-space:nowrap}",
         ".smpv-routeNums b{color:var(--dsw-alias-label-primary);font-weight:600}",
-        ".smpv-slotRow{display:grid;grid-template-columns:minmax(120px,168px) 44px 1fr auto;gap:8px;align-items:center;padding:3px 0}",
-        ".smpv-slots{display:flex;gap:2px;align-items:center;flex-wrap:wrap}",
-        ".smpv-slot{width:13px;height:13px;border-radius:3px;background:var(--dsw-alias-interactive-bg-hover);border:.5px solid var(--dsw-alias-border-l2)}",
-        // 空闲槽位：浅底 + 淡描边。浅色主题下 bg-layer 全是白色，只靠填充看不见。
-        ".smpv-slot.idle{border-color:var(--dsw-alias-label-tertiary);opacity:.45}",
-        ".smpv-slot.busy{background:var(--dsw-alias-accent,#2f6bff);border-color:transparent}",
-        ".smpv-slot.hot{background:var(--dsw-alias-state-warning-primary,#c77d0a);border-color:transparent}",
-        ".smpv-slot.down{background:var(--dsw-alias-state-error-primary,#d5393a);border-color:transparent}",
-        ".smpv-state{font-size:11px;line-height:16px;text-align:right;white-space:nowrap}",
+        ".smpv-route.fallback .smpv-routeLabel b{font-weight:500;color:var(--dsw-alias-label-secondary)}",
+        // 回退标签：小字 pill，和眉题同族。
+        ".smpv-fbTag{font-size:9px;line-height:14px;padding:0 5px;border-radius:999px;color:var(--dsw-alias-label-tertiary);background:var(--smpv-tint-2);flex:none}",
+
+        // ===== 池占用 =====
+        ".smpv-slotRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:5px 0}",
+        ".smpv-slots{display:flex;gap:3px;align-items:center;flex-wrap:wrap}",
+        ".smpv-slot{width:14px;height:14px;border-radius:4px;background:var(--smpv-tint-2);border:.5px solid transparent}",
+        // 空闲槽位靠描边表达「存在但空」——浅色主题下纯填充不可见。
+        ".smpv-slot.idle{border-color:var(--dsw-alias-border-l2)}",
+        ".smpv-slot.busy{background:var(--dsw-alias-accent,#2f6bff)}",
+        ".smpv-slot.hot{background:var(--dsw-alias-state-warning-primary,#c77d0a)}",
+        ".smpv-slot.down{background:var(--dsw-alias-state-error-primary,#d5393a)}",
+        // 状态：小圆点 + 文字，比纯色文字更克制。
+        ".smpv-state{display:inline-flex;align-items:center;gap:5px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}",
+        ".smpv-state:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}",
         ".smpv-state.ok{color:var(--dsw-alias-state-success-primary,#1a8a4a)}",
         ".smpv-state.hot{color:var(--dsw-alias-state-warning-primary,#c77d0a)}",
         ".smpv-state.down{color:var(--dsw-alias-state-error-primary,#d5393a)}",
+        ".smpv-slotNum{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
+
+        // ===== 会话明细 =====
+        // 撑满剩余高度、表头吸顶——否则宽屏下页面下半截全是空白。
+        ".smpv-sessions{display:flex;flex-direction:column;flex:1 1 auto;min-height:180px}",
+        ".smpv-tableWrap{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}",
         ".smpv-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}",
-        ".smpv-table thead th{color:var(--dsw-alias-label-tertiary);font-weight:500;font-size:11px;line-height:16px;text-align:left;padding:0 8px 4px;border-bottom:.5px solid var(--dsw-alias-border-l2);vertical-align:bottom;white-space:nowrap}",
+        ".smpv-table thead th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-tertiary);font-weight:500;font-size:10px;line-height:14px;letter-spacing:.04em;text-align:left;padding:0 10px 6px;border-bottom:.5px solid var(--dsw-alias-border-l1);white-space:nowrap}",
         ".smpv-table thead th.smpv-num{text-align:right}",
-        ".smpv-table tbody td{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:4px 8px;font-size:11px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}",
+        ".smpv-table tbody td{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:7px 10px;font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}",
         ".smpv-table tbody tr:last-child td{border-bottom:0}",
-        // 父子关系用左侧竖线表达，不用 padding 硬推——标题列宽度不受影响。
-        ".smpv-sessionTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-        ".smpv-kind{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px}",
-        // 数字在口径切换时突变，给一个轻微淡入，避免生硬跳变。
-        ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;transition:opacity .14s ease-out}",
-        ".smpv-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;padding:12px 6px;text-align:center}",
-        ".smpv-err{color:var(--dsw-alias-state-error-primary,#d5393a);font-size:12px;line-height:18px;padding:12px 6px}",
-        // ===== 移动端 H5 适配（沿用 DSH 前端的 width<=767px / width<=480px 断点）=====
-        // 窄屏：标题区竖排、按钮组占满一行、两栏面板改单栏、卡片改 2 列。
+        ".smpv-table tbody tr:hover td{background:var(--smpv-tint-1)}",
+        ".smpv-sessionTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}",
+        ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
+        // 请求数是这行最有信息量的数字，给它主字色。
+        ".smpv-numLead{color:var(--dsw-alias-label-primary);font-weight:500}",
+        ".smpv-table .smpv-routeLabel{font-size:11px;color:var(--dsw-alias-label-secondary)}",
+
+        ".smpv-empty{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;padding:16px 0}",
+        ".smpv-err{color:var(--dsw-alias-state-error-primary,#d5393a);font-size:11px;line-height:16px;padding:10px 0}",
+
+        // ===== 移动端 H5（沿用 DSH 的 width<=767px / width<=480px / pointer:coarse 断点）=====
         "@media (width<=767px){",
-        // 底部留足内边距：最后一��会话卡片不能被视口底边裁掉。
-        // max() 让 iPhone 底部横条（safe-area-inset-bottom）与普通手机都能生效。
-        ".smpv-page{padding:12px 12px max(28px,calc(env(safe-area-inset-bottom,0px) + 16px));gap:10px}",
-        ".smpv-head{flex-direction:column;align-items:stretch;gap:8px}",
-        ".smpv-actions{justify-content:space-between;gap:8px}",
+        // 底部留足安全区内边距：最后一屏内容不能被视口底边或 iPhone 横条盖住。
+        ".smpv-page{padding:14px 14px max(24px,calc(env(safe-area-inset-bottom,0px) + 16px))}",
+        ".smpv-head{flex-direction:column;align-items:stretch;gap:10px;padding-bottom:12px}",
+        ".smpv-actions{justify-content:space-between;gap:8px;margin-left:0}",
         ".smpv-switch{flex:1;display:flex}",
         ".smpv-switchBtn{flex:1;text-align:center}",
-        ".smpv-grid{grid-template-columns:1fr;gap:8px}",
-        ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}",
-        ".smpv-card{padding:5px 8px}",
-        // 窄屏基本就是手机：可点区域放大到 34px 以上（不必依赖 pointer:coarse）。
-        ".smpv-switchBtn{padding:8px 11px;min-height:34px;display:inline-flex;align-items:center;justify-content:center}",
-        ".smpv-refresh{min-height:34px;padding:8px 10px}",
-        // 窄屏：8 列表格转成卡片列表，每个会话一张卡。
+        // 指标条改两列：四格横排在手机上每格只有 60px，数字会截断。
+        ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:1fr;margin:16px 0}",
+        ".smpv-card{padding:10px 12px}",
+        ".smpv-card:nth-child(odd):before{content:none}",
+        ".smpv-card:nth-child(n+3){border-top:.5px solid var(--dsw-alias-border-l1)}",
+        ".smpv-cardV{font-size:19px;line-height:24px}",
+        ".smpv-grid{grid-template-columns:minmax(0,1fr);gap:20px;margin-bottom:16px}",
+        // 手机不撑满：内容本来就长，撑满反而看不到底。
+        ".smpv-sessions{min-height:0}",
+        ".smpv-tableWrap{overflow:visible}",
+        // 表格转卡片列表。
         ".smpv-table,.smpv-table tbody,.smpv-table tbody tr,.smpv-table tbody td{display:block;width:auto}",
         ".smpv-table thead{display:none}",
-        ".smpv-table tbody tr{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);padding:6px 8px;margin-bottom:6px}",
-        ".smpv-table tbody td{border:0;padding:1px 0;display:flex;align-items:baseline;justify-content:space-between;gap:10px}",
-        ".smpv-table tbody td::before{content:attr(data-label);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px;flex:none}",
-        // 标题独占一行，不显示标签前缀。
-        ".smpv-table tbody td:first-child{font-weight:500;padding-bottom:3px}",
+        ".smpv-table tbody tr{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:9px 0}",
+        ".smpv-table tbody tr:last-child{border-bottom:0}",
+        ".smpv-table tbody td{border:0;padding:0;display:flex;align-items:baseline;justify-content:space-between;gap:10px}",
+        ".smpv-table tbody td::before{content:attr(data-label);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;flex:none}",
+        ".smpv-table tbody td:first-child{font-weight:600;padding-bottom:5px;font-size:12px}",
         ".smpv-table tbody td:first-child::before{content:none}",
         ".smpv-table tbody td:first-child .smpv-sessionTitle{white-space:normal;overflow-wrap:anywhere}",
-        ".smpv-table tr.session td:first-child{font-weight:600}",
-        // 数值字段排成两列网格：8 行压到 6 行，行高从 183px 降到 ~110px。
-        ".smpv-table tbody tr{display:grid;grid-template-columns:1fr 1fr;column-gap:10px}",
+        // 数值字段两列排布。
+        ".smpv-table tbody tr{display:grid;grid-template-columns:1fr 1fr;column-gap:12px}",
         ".smpv-table tbody td:first-child{grid-column:1/-1}",
         ".smpv-table tbody td.smpv-num{flex-direction:row;align-items:baseline;justify-content:space-between;gap:6px}",
         ".smpv-table tbody td.smpv-num::before{order:0}",
-        ".smpv-table tbody td.smpv-num .smpv-numV{order:1}",
         "}",
-        // 超窄屏：卡片数字字号收一档。
         "@media (width<=480px){",
-        ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr))}",
-        ".smpv-cardV{font-size:14px;line-height:20px}",
-        ".smpv-refresh{padding:3px 7px}",
+        ".smpv-cardV{font-size:17px;line-height:22px}",
+        ".smpv-cardSub{font-size:9px;line-height:13px}",
+        ".smpv-refresh{padding:5px 10px}",
         "}",
-        // 触摸设备：可点区域放大。
+        // 触摸设备：可点区域放大到 32px 以上。
         "@media (pointer:coarse){",
-        ".smpv-switchBtn{padding:8px 11px;min-height:32px}",
-        ".smpv-refresh{min-height:32px;padding:7px 10px}",
+        ".smpv-switchBtn{padding:8px 12px;min-height:32px}",
+        ".smpv-refresh{min-height:32px;padding:7px 12px}",
         "}"
       ].join("");
       if (typeof document !== "undefined" && typeof document.querySelector === "function"
@@ -1027,12 +1060,21 @@
       }
 
       /** 一张合计卡。 */
+      /**
+       * 指标格。
+       *
+       * 大数字 + 眉题标签，可选一行副文本（把相关的细项并进同一格，
+       * 避免等权重的小卡片铺满一行、看不出主次）。
+       */
       function StatCard(props) {
         return jsx("div", {
-          className: "smpv-card",
+          className: "smpv-card" + (props.wide ? " wide" : ""),
           children: [
             jsx("div", { className: "smpv-cardK", children: props.label }),
-            jsx("div", { className: "smpv-cardV", children: props.value })
+            jsx("div", { className: "smpv-cardV", children: props.value }),
+            // 副文本槽位恒定存在（没内容也留空）：只在部分格子有副文本时，
+            // 其余格子会矮一截，手机两列布局下上下行高度不齐。
+            jsx("div", { className: "smpv-cardSub", children: props.sub ?? null })
           ]
         });
       }
@@ -1141,7 +1183,7 @@
         if (poolRows.length === 0 && fbRows.length === 0) {
           return jsx("div", {
             className: "smpv-bar",
-            children: jsx("i", { className: "smpv-barI", style: { width: "100%", background: "var(--dsw-alias-interactive-bg-hover)" } })
+            children: jsx("i", { className: "smpv-barI", style: { width: "100%", background: "var(--smpv-tint-2)" } })
           });
         }
         var seg = function (list, cls) {
@@ -1181,17 +1223,14 @@
                   children: [
                     jsx(RouteLabel, { route: route }),
                     jsx("span", {
-                      className: "smpv-routeNums",
-                      children: [
-                        jsx("b", { children: String(route.active || 0) }),
-                        "/" + String(route.maxConcurrent || 0)
-                      ]
-                    }),
-                    jsx("span", {
                       className: "smpv-slots",
                       children: states.map(function (state, index) {
                         return jsx("i", { key: index, className: "smpv-slot " + state });
                       })
+                    }),
+                    jsx("span", {
+                      className: "smpv-slotNum",
+                      children: (route.active || 0) + "/" + (route.maxConcurrent || 0)
                     }),
                     jsx("span", { className: "smpv-state " + health, children: labels[health] })
                   ]
@@ -1205,15 +1244,16 @@
       function SessionTable(props) {
         var rows = groupSessions(props.sessions);
         return jsx("div", {
-          className: "smpv-panel",
-          style: { overflowX: "auto" },
+          className: "smpv-panel smpv-sessions",
           children: [
             jsx("h3", { className: "smpv-panelTitle", children: "子代理会话" }),
             rows.length === 0
               ? jsx("div", { className: "smpv-empty", children: "还没有观测到模型请求。" })
-              : jsx("table", {
-                className: "smpv-table",
-                children: [
+              : jsx("div", {
+                className: "smpv-tableWrap",
+                children: jsx("table", {
+                  className: "smpv-table",
+                  children: [
                   jsx("thead", {
                     children: jsx("tr", {
                       children: [
@@ -1253,7 +1293,7 @@
                             "data-label": "路由",
                             children: routeText || "—"
                           }),
-                          jsx("td", { className: "smpv-num", "data-label": "请求", children: jsx("span", { className: "smpv-numV", children: formatCount(session.requests) }) }),
+                          jsx("td", { className: "smpv-num smpv-numLead", "data-label": "请求", children: jsx("span", { className: "smpv-numV", children: formatCount(session.requests) }) }),
                           jsx("td", { className: "smpv-num", "data-label": "输入", children: jsx("span", { className: "smpv-numV", children: formatTokens(session.tokens.inputTokens) }) }),
                           jsx("td", { className: "smpv-num", "data-label": "输出", children: jsx("span", { className: "smpv-numV", children: formatTokens(session.tokens.outputTokens) }) }),
                           jsx("td", { className: "smpv-num", "data-label": "缓存读", children: jsx("span", { className: "smpv-numV", children: formatTokens(session.tokens.cacheReadTokens) }) }),
@@ -1263,6 +1303,7 @@
                     })
                   })
                 ]
+                })
               })
           ]
         });
@@ -1325,14 +1366,51 @@
                 jsx("div", {
                   className: "smpv-cards",
                   children: [
-                    jsx(StatCard, { label: "分配次数", value: formatCount(totals === null ? 0 : totals.assignments) }),
-                    jsx(StatCard, { label: "模型请求", value: formatCount(totals === null ? 0 : totals.requests) }),
-                    jsx(StatCard, { label: "未缓存输入", value: formatTokens(tokens === null ? 0 : tokens.inputTokens) }),
-                    jsx(StatCard, { label: "输出", value: formatTokens(tokens === null ? 0 : tokens.outputTokens) }),
-                    jsx(StatCard, { label: "缓存读", value: formatTokens(tokens === null ? 0 : tokens.cacheReadTokens) }),
-                    jsx(StatCard, { label: "缓存写", value: formatTokens(tokens === null ? 0 : tokens.cacheWriteTokens) }),
-                    jsx(StatCard, { label: "回退父路由", value: formatCount(totals === null ? 0 : totals.fallbacks) }),
-                    jsx(StatCard, { label: "探测失败", value: formatCount(totals === null ? 0 : totals.probeFailures) })
+                    jsx(StatCard, {
+                      label: "分配次数",
+                      value: formatCount(totals === null ? 0 : totals.assignments)
+                    }),
+                    jsx(StatCard, {
+                      label: "模型请求",
+                      value: formatCount(totals === null ? 0 : totals.requests)
+                    }),
+                    // Token 总量当主指标；四个桶并成一行副文本，
+                    // 不再各占一张等权重的卡。
+                    jsx(StatCard, {
+                      wide: true,
+                      label: "Token 总量",
+                      value: formatTokens(
+                        tokens === null ? 0
+                          : tokens.inputTokens + tokens.outputTokens +
+                            tokens.cacheReadTokens + tokens.cacheWriteTokens,
+                      ),
+                      sub: tokens === null
+                        ? null
+                        : jsx("span", {
+                          className: "smpv-buckets",
+                          children: [
+                            jsx("span", { children: "入 " + formatTokens(tokens.inputTokens) }),
+                            jsx("span", { children: "出 " + formatTokens(tokens.outputTokens) }),
+                            jsx("span", { children: "缓存读 " + formatTokens(tokens.cacheReadTokens) }),
+                            jsx("span", { children: "缓存写 " + formatTokens(tokens.cacheWriteTokens) })
+                          ]
+                        })
+                    }),
+                    jsx(StatCard, {
+                      label: "异常",
+                      value: formatCount(
+                        totals === null ? 0 : totals.fallbacks + totals.probeFailures,
+                      ),
+                      sub: totals === null
+                        ? null
+                        : jsx("span", {
+                          className: "smpv-buckets",
+                          children: [
+                            jsx("span", { children: "回退 " + formatCount(totals.fallbacks) }),
+                            jsx("span", { children: "探测失败 " + formatCount(totals.probeFailures) })
+                          ]
+                        })
+                    })
                   ]
                 }),
                 jsx("div", {
