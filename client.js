@@ -788,20 +788,20 @@
         ".smpv-card{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:6px 9px}",
         ".smpv-cardK{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
         ".smpv-cardV{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:15px;line-height:21px;font-weight:600}",
-        ".smpv-switch{display:inline-flex;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);overflow:hidden;position:relative;background:var(--dsw-alias-bg-layer-1)}",
+        // 分段控件：容器无边框无底色，每个按钮自带完整圆角 pill。
+        // 之前用「容器圆角 + 选中项直角蓝块」，蓝块被容器 overflow:hidden 裁切，
+        // 左角方、右角圆，形状不对称；圆点还顶在容器边框上像缺口。
+        ".smpv-switch{display:inline-flex;align-items:center;gap:3px;position:relative}",
         // 字重固定：选中态只换背景与文字色。改字重会让文字宽度变化，
         // 切换时按钮「拉长又缩小」。
-        // 选中态用品牌色实心填充 + 白字，对比强烈一眼可辨；容器边框也要看得见。
-        ".smpv-switchBtn{position:relative;border:0;background:0;padding:3px 9px;font-family:inherit;font-size:11px;line-height:16px;font-weight:500;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .16s ease,background-color .16s ease;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}",
-        ".smpv-switchBtn:hover:not(.on){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3)}",
-        ".smpv-switchBtn.on{background:var(--dsw-alias-accent,#2f6bff);color:#fff}",
-        // 选中项前的小圆点：白底上的实心点。
-        // 槽位宽度为 0，文字位置不受影响；圆点绝对定位溢出到左侧 9px。
-        // 若让它参与布局，选中/未选中宽度就不同，切换时按钮会伸缩。
-        ".smpv-switchSlot{position:relative;width:0;height:10px;flex:none}",
-        ".smpv-switchDot{position:absolute;left:-9px;top:50%;margin-top:-2px;display:block;width:4px;height:4px;border-radius:50%;background:#fff}",
-        ".smpv-switchBtn:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:-2px}",
-        ".smpv-switchBtn.on:focus-visible{outline-color:var(--dsw-alias-label-primary)}",
+        ".smpv-switchBtn{position:relative;border:0;background:0;padding:5px 11px;font-family:inherit;font-size:11px;line-height:16px;font-weight:500;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .16s ease,background-color .16s ease,box-shadow .16s ease;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-radius:var(--dsw-radius-md)}",
+        ".smpv-switchBtn:hover:not(.on){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
+        // 选中态反色（浅底深字），同 macOS UISegmentedControl。
+        // 深色主题下实底深字对比远强于「稍亮一点的同色底」：
+        // bg-layer-3 只有 rgb(44,44,46)，比页面底 rgb(21,21,23) 亮得看不太出来。
+        // 文字用固定深色 #1a1a1c：浅色主题下 bg-base 是白色，白底白字会看不见。
+        ".smpv-switchBtn.on{background:var(--dsw-alias-label-primary);color:#1a1a1c;box-shadow:0 1px 2px rgba(0,0,0,.28)}",
+        ".smpv-switchBtn:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
         ".smpv-panel{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:8px 10px;animation:smpv-fade .18s ease-out}",
         ".smpv-panelTitle{font-size:12px;line-height:18px;font-weight:600;margin:0 0 6px;display:flex;align-items:center;gap:6px}",
         // 标题里的口径标记：说明当前正在按什么统计。
@@ -857,7 +857,7 @@
         ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}",
         ".smpv-card{padding:5px 8px}",
         // 窄屏基本就是手机：可点区域放大到 34px 以上（不必依赖 pointer:coarse）。
-        ".smpv-switchBtn{padding:8px 9px;min-height:34px;display:inline-flex;align-items:center;justify-content:center}",
+        ".smpv-switchBtn{padding:8px 11px;min-height:34px;display:inline-flex;align-items:center;justify-content:center}",
         ".smpv-refresh{min-height:34px;padding:8px 10px}",
         // 窄屏：8 列表格转成卡片列表，每个会话一张卡。
         ".smpv-table,.smpv-table tbody,.smpv-table tbody tr,.smpv-table tbody td{display:block;width:auto}",
@@ -886,7 +886,7 @@
         "}",
         // 触摸设备：可点区域放大。
         "@media (pointer:coarse){",
-        ".smpv-switchBtn{padding:8px 9px;min-height:32px}",
+        ".smpv-switchBtn{padding:8px 11px;min-height:32px}",
         ".smpv-refresh{min-height:32px;padding:7px 10px}",
         "}"
       ].join("");
@@ -1048,11 +1048,7 @@
               title: on ? "当前口径：" + labels[mode] : "切换到" + labels[mode],
               onClick: function () { props.onChange(mode); },
               children: [
-                // 选中项带一个实心圆点，不只靠底色区分。
-                jsx("span", {
-                  className: "smpv-switchSlot",
-                  children: on ? jsx("i", { className: "smpv-switchDot" }) : null
-                }),
+                // 选中态靠底色 + 字色区分，不再加圆点——圆点挤在按钮边缘反而显脏。
                 labels[mode]
               ]
             });
