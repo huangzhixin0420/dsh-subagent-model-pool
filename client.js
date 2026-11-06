@@ -822,7 +822,52 @@
         ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;transition:opacity .14s ease-out}",
         ".smpv-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;padding:12px 6px;text-align:center}",
         ".smpv-err{color:var(--dsw-alias-state-error-primary,#d5393a);font-size:12px;line-height:18px;padding:12px 6px}",
-        ".smpv-foot{display:flex;gap:12px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}"
+        ".smpv-foot{display:flex;gap:12px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
+        // ===== 移动端 H5 适配（沿用 DSH 前端的 width<=767px / width<=480px 断点）=====
+        // 窄屏：标题区竖排、按钮组占满一行、两栏面板改单栏、卡片改 2 列。
+        "@media (width<=767px){",
+        ".smpv-page{padding:12px 12px 16px;gap:10px}",
+        ".smpv-head{flex-direction:column;align-items:stretch;gap:8px}",
+        ".smpv-actions{justify-content:space-between;gap:8px}",
+        ".smpv-switch{flex:1;display:flex}",
+        ".smpv-switchBtn{flex:1;text-align:center}",
+        ".smpv-grid{grid-template-columns:1fr;gap:8px}",
+        ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}",
+        ".smpv-card{padding:5px 8px}",
+        ".smpv-foot{gap:6px}",
+        // 窄屏基本就是手机：可点区域放大到 34px 以上（不必依赖 pointer:coarse）。
+        ".smpv-switchBtn{padding:8px 9px;min-height:34px;display:inline-flex;align-items:center;justify-content:center}",
+        ".smpv-refresh{min-height:34px;padding:8px 10px}",
+        // 窄屏：8 列表格转成卡片列表，每个会话一张卡。
+        ".smpv-table,.smpv-table tbody,.smpv-table tbody tr,.smpv-table tbody td{display:block;width:auto}",
+        ".smpv-table thead{display:none}",
+        ".smpv-table tbody tr{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);padding:6px 8px;margin-bottom:6px}",
+        ".smpv-table tbody td{border:0;padding:1px 0;display:flex;align-items:baseline;justify-content:space-between;gap:10px}",
+        ".smpv-table tbody td::before{content:attr(data-label);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px;flex:none}",
+        // 标题独占一行，不显示标签前缀。
+        ".smpv-table tbody td:first-child{font-weight:500;padding-bottom:3px}",
+        ".smpv-table tbody td:first-child::before{content:none}",
+        ".smpv-table tbody td:first-child .smpv-sessionTitle{white-space:normal;overflow-wrap:anywhere}",
+        ".smpv-table tr.child td:first-child{box-shadow:none;padding-left:14px;border-left:2px solid var(--dsw-alias-border-l1)}",
+        ".smpv-table tr.parent td:first-child{font-weight:600}",
+        // 数值字段排成两列网格：8 行压到 6 行，行高从 183px 降到 ~110px。
+        ".smpv-table tbody tr{display:grid;grid-template-columns:1fr 1fr;column-gap:10px}",
+        ".smpv-table tbody td:first-child{grid-column:1/-1}",
+        ".smpv-table tbody td.smpv-num{flex-direction:row;align-items:baseline;justify-content:space-between;gap:6px}",
+        ".smpv-table tbody td.smpv-num::before{order:0}",
+        ".smpv-table tbody td.smpv-num .smpv-numV{order:1}",
+        "}",
+        // 超窄屏：卡片数字字号收一档。
+        "@media (width<=480px){",
+        ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr))}",
+        ".smpv-cardV{font-size:14px;line-height:20px}",
+        ".smpv-refresh{padding:3px 7px}",
+        "}",
+        // 触摸设备：可点区域放大。
+        "@media (pointer:coarse){",
+        ".smpv-switchBtn{padding:8px 9px;min-height:32px}",
+        ".smpv-refresh{min-height:32px;padding:7px 10px}",
+        "}"
       ].join("");
       if (typeof document !== "undefined" && typeof document.querySelector === "function"
         && document.querySelector("style[data-subagent-model-pool-stats-css]") === null) {
@@ -1134,18 +1179,20 @@
                           }),
                           jsx("td", {
                             className: "smpv-kind",
+                            "data-label": "类型",
                             children: isSub ? "子代理" : "主代理"
                           }),
                           jsx("td", {
                             className: "smpv-routeLabel",
                             title: routeText,
+                            "data-label": "路由",
                             children: routeText || "—"
                           }),
-                          jsx("td", { className: "smpv-num", children: formatCount(session.requests) }),
-                          jsx("td", { className: "smpv-num", children: formatTokens(session.tokens.inputTokens) }),
-                          jsx("td", { className: "smpv-num", children: formatTokens(session.tokens.outputTokens) }),
-                          jsx("td", { className: "smpv-num", children: formatTokens(session.tokens.cacheReadTokens) }),
-                          jsx("td", { className: "smpv-num", children: formatTokens(session.tokens.cacheWriteTokens) })
+                          jsx("td", { className: "smpv-num", "data-label": "请求", children: jsx("span", { className: "smpv-numV", children: formatCount(session.requests) }) }),
+                          jsx("td", { className: "smpv-num", "data-label": "输入", children: jsx("span", { className: "smpv-numV", children: formatTokens(session.tokens.inputTokens) }) }),
+                          jsx("td", { className: "smpv-num", "data-label": "输出", children: jsx("span", { className: "smpv-numV", children: formatTokens(session.tokens.outputTokens) }) }),
+                          jsx("td", { className: "smpv-num", "data-label": "缓存读", children: jsx("span", { className: "smpv-numV", children: formatTokens(session.tokens.cacheReadTokens) }) }),
+                          jsx("td", { className: "smpv-num", "data-label": "缓存写", children: jsx("span", { className: "smpv-numV", children: formatTokens(session.tokens.cacheWriteTokens) }) })
                         ]
                       });
                     })
