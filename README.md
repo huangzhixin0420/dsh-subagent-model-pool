@@ -6,6 +6,10 @@
 
 ![设置页](docs/settings.png)
 
+v0.4.0 起带**统计视图**：侧栏「模型池统计」面板，一页看完分配、请求与 token 四桶。
+
+![统计视图](docs/stats-view.png)
+
 ## 行为
 
 - 子代理**创建时、初始任务释放前**完成候选探测并通过 `agent.model.select()` 选定模型，此后全程锁定。适配 DSH 0.2.2 的 step preparation 约束。
@@ -50,6 +54,29 @@
 - 非子代理（`header.origin !== "subagent"` 或无 `parentSession`）——保护主会话的模型切换。
 - `fork` 子代理——它继承父对话前缀，换模型会作废 KV 缓存。
 - 显式指定了模型的子代理——包括显式路由恰好等于父路由的情况。插件在 `subagents.startActivation()` 的原始参数上保留显式标记，不再靠合并后的路由差值猜测。若无法安全安装该标记，插件会停用池分配，而不是误覆盖。
+
+## 统计视图
+
+侧栏「模型池统计」图标 → 独立主页面。数据来自 Host 半注册的 Connection 精确 Fetch 路由 `/api/subagent-pool.stats`（浏览器同源 fetch，带会话 cookie）。
+
+页面分四块：
+
+| 区块 | 内容 |
+|---|---|
+| 合计条 | 分配次数、模型请求、未缓存输入、输出、缓存读、缓存写、回退父路由 |
+| 路由分布 | 一条堆叠条 + 每条路由的占比；可切「按 Token / 按请求 / 按分配」三种口径 |
+| 池占用 | 每个池内候选的并发槽位图（空闲 / 占用中 / 满载 / 探测失败）与当前占用数 |
+| 会话明细 | 主会话与子代理分行（子代理缩进），各自请求数与 token 四桶 |
+
+口径说明：
+
+- **token 四桶分开**：输入是**未缓存输入**，缓存读、缓存写另计，与 DSH 的 `tokenUsage` 投影（`dsh-token-meter`）同义，不能合并成单一「输入」。
+- **替换语义**：同一个 turn/step 重复结算取最新值；`llm/retry-started` 会作废上一个槽，重试的那次全额计入（与 `dsh-token-meter` 同口径）。
+- **进程内累计**：账本在插件 `apply` 闭包里，进程重启后归零；配置热更新换池不影响账本。
+  - **为什么不回读历史**：DSH 的会话日志本身是持久的（`~/.dsh/sessions/<工作区目录转码>/<agentId>/session.v4.jsonl.zstd`，含 `assistant/message` 的 usage、`request/header` 的路由、`session/title` 的标题），但本插件**只从 `session/event` 实时事件流记账**，不回放历史日志。
+  - 标题是唯一的例外：`sessionTitle.get(session)` 直接读会话日志折叠出的最新标题快照，所以插件挂载前就命名的会话也能显示标题。
+  - 想要跨重启的历史统计有三条路：① 插件自己落盘账本（仿 `dsh-schedule` 的 `schedule.json`）；② 启动时回放 `~/.dsh/sessions/**` 重算（口径天然与 DSH 一致，但要解析 zstd + jsonl）；③ 走 DSH 的 `sessionProjections`（投影状态由 DSH 持久化到 `~/.dsh/storages/session_projcache/`）。当前版本三条都没做——进程内累计是刻意选择，不是遗漏。
+- **路由归属**：`assistant/message` 用 `message.source`（这次实际走的路由）；失败/中断的 `assistant/attempt` 没有 `source`，改用该会话 `request/header` 记住的路由归因。
 
 ## 安装
 
@@ -139,6 +166,30 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 - 候选键用 `JSON.stringify([provider, model])` 而不是 `${provider}\0${model}`：后者在任一侧自带分隔符时会碰撞。
 - 配置热更新：volatile 引用的写入无法订阅，所以在每次 `agent/created` 前比对配置指纹（`signatureOf`），变了就整体换池。设置页改完**无需重启**。
 
+### 统计视图的实现要点
+
+- **取数走 Connection 的精确 Fetch 路由**，不自建 HTTP 服务：`ctx.connection.fetch.register({path, methods, requestBody, fetch})`，路径必须在 `/api` 下。Connection 已经把 Host/Origin 围栏与浏览器会话鉴权做完（`dsh-client-connection/lib/index.js:742` `admit()`），第三方插件自己开路由等于重写一遍鉴权。
+- **鉴权实测（隔离实例 :3099）**：
+
+  | 请求 | 结果 |
+  |---|---|
+  | 无凭据 | 401 unauthorized |
+  | 启动 token（`?token=`） | 401——页面启动凭据不是 API 凭据 |
+  | `sec-fetch-site: cross-site` | 403 forbidden |
+  | 异源 `Origin` | 403 forbidden |
+  | 伪造 `Host` | 403 forbidden |
+  | 对照组内建 `/api/present.host` 无凭据 | 401（整个 `/api` 前缀同一把锁） |
+  | 浏览器登录态 fetch / 有效 cookie + curl | 200 + 统计数据 |
+
+  源码链路：`/api` prefix 路由 → `connection.admit(req)`（:742）→ 通过才 `bridge(req, res, fetchHandler, admission.peer, …)`（:1055）→ `createSharedFetchHandler` 再查 `peer.principal.kind !== "owner"` 返 403（:831）。浏览器会话 cookie 是 HMAC 签名（`decodeCookie(value, this.secret)`），无法伪造。cookie 兑换链：`GET /?token=<启动token>` → 303 + `set-cookie: dsh-auth-<sha256(authority)>`（HttpOnly; SameSite=Strict）→ 带 cookie 才能打 API；**query token 本身不是 API 凭据**。
+- **不需要额外包 `ctx.effect`**：`registerFetchRoute` 内部已 `owner.effect(...)`（:847-853），且 `owner` 解析为调用方插件的 fiber ctx——插件卸载时路由自动摘除。实测：dispose fiber 后路由 404；双插件互斥时 dispose A 只影响 A（B 仍 200），重载 A 无 "already registered" 冲突。
+- **与 `connection.rpc.handle` 无安全差异，且本方案更严**：两者都在同一位置调 `admit()`（`rpc.handle` 在 :862，精确路由在 :1049 的 prefix handler）；精确路由**额外**有一道 `peer.principal.kind !== "owner"` 检查（:830），`rpc.handle` 没有。本方案还少一层 `{ok, value}` 包络，handler 抛异常不会变 500 纯文本。RPC 的唯一优势是能挂非 `/api` 的自定义通道——精确 Fetch 路由**必须**在 `/api` 下（`assertFetchRoute` → `endpointFromPath("/api", path)`，:974），本插件路径已符合。
+- **`connection` 不能进顶层 `inject`**：非 Web profile（headless / avb-lab）没有这个服务，顶层声明会让插件整体不挂载。改用嵌套 `ctx.inject(["connection"], cb)`，Web 环境自动补上，其他环境安静地不提供统计页。
+- **面板挂载用 slots**：`ctx.slots.inject("main", …)` 注册 keyed 主页面（key = `subagent-model-pool`），`ctx.slots.inject("sidebar.panellist", …)` 注册侧栏条目（id + order + label）。先例是内置的「插件管理」页与「任务」页。
+- **`jsx` 是 automatic runtime**：`jsx(type, props, key)`，多子元素必须写进 `props.children`（`children: [...]`）。写成 `jsx(type, props, child1, child2)` 会在渲染时抛 `Cannot read properties of null (reading 'key')`。
+- **统计页的 store 用普通 prop 下发**：`inject` 面里的 `hooks` 会被渲染器绑成选择器钩子，而这里要传的是一个带 React hooks 的函数，只能当普通 prop 传（`{ useStats: fn }`）。
+- **账本必须由 `apply` 闭包持有**，不能挂在池实例上：配置热更新会整体换池，挂在池上历史就丢了。
+
 ## 实测验证（2026-11-02 ~ 11-03）
 
 分配行为：
@@ -159,7 +210,17 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 | 取消勾选 | 该行上限框消失，保存后条目被移除 |
 | 改 `maxConcurrent` 等于继承值保存 | 条目被删除，回落到 bundle 默认值——这是 `edit` 的正确语义 |
 
-测试：`node --test tests/*.test.js`，76 项全通过（2026-11-06，含 DSH 0.2.2 创建期选路、显式同/异路由、fork、冷恢复与探测回退回归）。
+测试：`node --test tests/*.test.js`，116 项全通过（2026-11-06，含 DSH 0.2.2 创建期选路、显式同/异路由、fork、冷恢复、探测回退与统计视图回归）。
+
+统计视图端到端实测（2026-11-06，DSH Web 临时实例 :3099）：
+
+| 场景 | 结果 |
+|---|---|
+| 取数路由 | `GET /api/subagent-pool.stats` → 200，结构 `{routes, totals, sessions}` |
+| 侧栏入口 | 侧栏出现「模型池统计」，点击挂载独立主页面 |
+| 真实子代理 | 派一个子代理后：分配次数 1、模型请求 6、路由 `c2a/free` 归到子代理、`c2a/paid` 归到主代理 |
+| 页面渲染 | 堆叠条双色分段（paid 73.7% / free 26.3%）、池占用只列池内候选、会话明细父子缩进 22px |
+| 密度实测 | 卡片 95×51px、路由行 22px、表格单元格 26px（字号 11px / 行高 17px） |
 
 
 ## 实现要点

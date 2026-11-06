@@ -23,6 +23,8 @@
       var jsxRuntime = require("react/jsx-runtime");
       var react = require("react");
       var useState = react.useState;
+      var useEffect = react.useEffect;
+      var useMemo = react.useMemo;
       var primitives = require("@deepseek-ai/dsh-client-ui-primitives");
       var jsx = jsxRuntime.jsx;
       var jsxs = jsxRuntime.jsxs;
@@ -720,8 +722,598 @@
         }, "subagent-model-pool: 顶层设置入口");
       }
 
+      // ---- 统计视图 ----
+      //
+      // 形态：侧栏面板（sidebar.panellist）+ 独立主页面（main 槽 keyed）。
+      // 先例是内置的「插件管理」页与「任务」页（dsh-client-ui-plugin-manager /
+      // dsh-client-ui-schedule）：两者都是 slots.inject("main") 挂一个 keyed
+      // 主页面，再用 slots.inject("sidebar.panellist") 挂侧栏图标。
+      //
+      // 数据来源：Host 半注册的 Connection 精确 Fetch 路由
+      // `/api/subagent-pool.stats`（服务端 index.js 的 STATS_PATH）。
+      // 走 Connection 的理由：Host/Origin 围栏与浏览器会话鉴权已经现成，
+      // 第三方插件自己开 HTTP 路由等于重写一遍鉴权。
+
+      /** 统计面板的 id（同时是 main 槽的 key 与侧栏条目 id）。 */
+      var PANEL_ID = "subagent-model-pool";
+
+      /** 统计快照的取数路由（浏览器相对路径，与内置 deliverables 同款写法）。 */
+      var STATS_ROUTE = "api/subagent-pool.stats";
+
+      /** 三种统计口径。 */
+      var MODES = ["tokens", "requests", "assignments"];
+
+      /** 路由配色：t0 蓝 / t1 绿 / t2 橙 / t3 紫（与 DSH 内置统计表同族）。 */
+      var TONE_COLORS = {
+        t0: "var(--dsw-alias-accent,#2f6bff)",
+        t1: "var(--dsw-alias-state-success-primary,#1a8a4a)",
+        t2: "var(--dsw-alias-state-warning-primary,#c77d0a)",
+        t3: "#8a63d2"
+      };
+
+      var STATS_CSS = [
+        ".smpv-page{display:flex;flex-direction:column;gap:12px;padding:16px 20px;min-width:0}",
+        ".smpv-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}",
+        ".smpv-title{margin:0;font-size:14px;line-height:20px;font-weight:600}",
+        ".smpv-sub{margin:2px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
+        ".smpv-actions{display:flex;align-items:center;gap:8px}",
+        ".smpv-refresh{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;padding:3px 8px;cursor:pointer}",
+        ".smpv-refresh:hover:not(:disabled){background:var(--dsw-alias-bg-layer-4)}",
+        ".smpv-refresh:disabled{opacity:.5;cursor:not-allowed}",
+        ".smpv-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px}",
+        ".smpv-card{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:6px 9px}",
+        ".smpv-cardK{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
+        ".smpv-cardV{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:15px;line-height:21px;font-weight:600}",
+        ".smpv-switch{display:inline-flex;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);overflow:hidden}",
+        ".smpv-switchBtn{border:0;background:0;padding:3px 9px;font-family:inherit;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);cursor:pointer}",
+        ".smpv-switchBtn.on{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600}",
+        ".smpv-panel{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:8px 10px}",
+        ".smpv-panelTitle{font-size:12px;line-height:18px;font-weight:600;margin:0 0 6px}",
+        ".smpv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
+        ".smpv-stack{margin:0 0 6px}",
+        ".smpv-dot{width:7px;height:7px;border-radius:2px;display:inline-block;flex:none}",
+        ".smpv-route{display:grid;grid-template-columns:7px minmax(112px,160px) 1fr auto;gap:8px;align-items:center;padding:3px 0}",
+        ".smpv-routeLabel{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+        ".smpv-routeLabel b{font-weight:600}",
+        ".smpv-routeLabel span{color:var(--dsw-alias-label-tertiary)}",
+        ".smpv-bar{height:8px;border-radius:2px;background:var(--dsw-alias-bg-layer-2);display:flex;overflow:hidden}",
+        ".smpv-barI{display:block;height:100%}",
+        ".smpv-routeNums{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);text-align:right;white-space:nowrap}",
+        ".smpv-routeNums b{color:var(--dsw-alias-label-primary);font-weight:600}",
+        ".smpv-slotRow{display:grid;grid-template-columns:minmax(120px,168px) 44px 1fr auto;gap:8px;align-items:center;padding:3px 0}",
+        ".smpv-slots{display:flex;gap:2px;align-items:center;flex-wrap:wrap}",
+        ".smpv-slot{width:13px;height:13px;border-radius:3px;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1)}",
+        ".smpv-slot.busy{background:var(--dsw-alias-accent,#2f6bff);border-color:transparent}",
+        ".smpv-slot.hot{background:var(--dsw-alias-state-warning-primary,#c77d0a);border-color:transparent}",
+        ".smpv-slot.down{background:var(--dsw-alias-state-error-primary,#d5393a);border-color:transparent}",
+        ".smpv-state{font-size:11px;line-height:16px;text-align:right;white-space:nowrap}",
+        ".smpv-state.ok{color:var(--dsw-alias-state-success-primary,#1a8a4a)}",
+        ".smpv-state.hot{color:var(--dsw-alias-state-warning-primary,#c77d0a)}",
+        ".smpv-state.down{color:var(--dsw-alias-state-error-primary,#d5393a)}",
+        ".smpv-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}",
+        ".smpv-table th{color:var(--dsw-alias-label-tertiary);font-weight:500;font-size:11px;line-height:16px;text-align:left;padding:3px 6px;border-bottom:.5px solid var(--dsw-alias-border-l2);vertical-align:bottom}",
+        ".smpv-table td{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:4px 6px;font-size:11px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+        ".smpv-table tr.child td{color:var(--dsw-alias-label-secondary);padding-left:22px}",
+        ".smpv-table tr.child td:first-child{box-shadow:inset 2px 0 0 var(--dsw-alias-border-l1)}",
+        ".smpv-sessionMark{display:inline-block;width:12px;color:var(--dsw-alias-label-tertiary)}",
+        ".smpv-kind{color:var(--dsw-alias-label-tertiary)}",
+        ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right}",
+        ".smpv-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;padding:12px 6px;text-align:center}",
+        ".smpv-err{color:var(--dsw-alias-state-error-primary,#d5393a);font-size:12px;line-height:18px;padding:12px 6px}",
+        ".smpv-foot{display:flex;gap:12px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}"
+      ].join("");
+      if (typeof document !== "undefined" && typeof document.querySelector === "function"
+        && document.querySelector("style[data-subagent-model-pool-stats-css]") === null) {
+        var statsStyle = document.createElement("style");
+        statsStyle.setAttribute("data-subagent-model-pool-stats-css", "true");
+        statsStyle.textContent = STATS_CSS;
+        document.head.appendChild(statsStyle);
+      }
+
+      /** 一条路由在某口径下的度量值。 */
+      function measureOf(route, mode) {
+        if (mode === "requests") return route.requests || 0;
+        if (mode === "assignments") return route.assignments || 0;
+        return route.totalTokens || 0;
+      }
+
+      /** 按口径排序路由并算占比。 */
+      function rankRoutes(routes, mode) {
+        var measured = routes.map(function (route) {
+          return Object.assign({}, route, { measure: measureOf(route, mode) });
+        });
+        var total = measured.reduce(function (sum, route) { return sum + route.measure; }, 0);
+        measured.sort(function (left, right) {
+          return right.measure - left.measure
+            || left.provider.localeCompare(right.provider)
+            || left.model.localeCompare(right.model);
+        });
+        return measured.map(function (route, index) {
+          return Object.assign({}, route, {
+            tone: "t" + (index % 4),
+            ratio: total === 0 ? 0 : route.measure / total
+          });
+        });
+      }
+
+      /** 池槽位图：每个并发槽的状态。 */
+      function slotStates(route) {
+        var capacity = Math.max(0, route.maxConcurrent || 0);
+        var active = Math.max(0, route.active || 0);
+        var states = [];
+        for (var i = 0; i < capacity; i += 1) {
+          if (i < active) states.push((route.probeFailures || 0) > 0 ? "hot" : "busy");
+          else states.push("idle");
+        }
+        return states;
+      }
+
+      /** 路由健康状态。 */
+      function routeHealth(route) {
+        if ((route.probeFailures || 0) > 0) return "down";
+        var capacity = route.maxConcurrent || 0;
+        if (capacity > 0 && (route.active || 0) >= capacity) return "hot";
+        return "ok";
+      }
+
+      /** 千分位整数。 */
+      function formatCount(value) {
+        if (typeof value !== "number" || !isFinite(value)) return "—";
+        return Math.round(value).toLocaleString("en-US");
+      }
+
+      /** 紧凑 token 数：不足一万原样，超过后用 k / M。 */
+      function formatTokens(value) {
+        if (typeof value !== "number" || !isFinite(value)) return "—";
+        if (value < 1000) return String(Math.round(value));
+        if (value < 1000000) {
+          var k = value / 1000;
+          return (k >= 100 ? Math.round(k) : Math.round(k * 10) / 10) + "k";
+        }
+        var m = value / 1000000;
+        return (m >= 100 ? Math.round(m) : Math.round(m * 10) / 10) + "M";
+      }
+
+      /** 百分比（一位小数，去掉多余的 .0）。 */
+      function formatPercent(ratio) {
+        if (typeof ratio !== "number" || !isFinite(ratio)) return "—";
+        var percent = Math.round(ratio * 1000) / 10;
+        return (Number.isInteger(percent) ? percent : percent.toFixed(1)) + "%";
+      }
+
+      /** 会话父子分组：主会话一行，其子代理各占一行。 */
+      function groupSessions(sessions) {
+        var byId = {};
+        sessions.forEach(function (session) { byId[session.sessionId] = session; });
+        var roots = [];
+        var orphans = [];
+        var childrenOf = {};
+        sessions.forEach(function (session) {
+          if (session.isSubagent !== true || session.parentSessionId === undefined) {
+            roots.push(session);
+            return;
+          }
+          if (byId[session.parentSessionId] === undefined) {
+            // 父会话已被账本淘汰：仍是子代理，只是没有可挂的行。
+            orphans.push(session);
+            return;
+          }
+          (childrenOf[session.parentSessionId] = childrenOf[session.parentSessionId] || []).push(session);
+        });
+        var rows = [];
+        roots.forEach(function (root) {
+          rows.push({ kind: "parent", session: root });
+          (childrenOf[root.sessionId] || []).forEach(function (child) {
+            rows.push({ kind: "child", session: child });
+          });
+        });
+        orphans.forEach(function (child) {
+          rows.push({ kind: "child", session: child });
+        });
+        return rows;
+      }
+
+      /** 校验 Host 返回的快照，形状不对就当作不可用。 */
+      function parseSnapshot(value) {
+        if (value === null || typeof value !== "object") return null;
+        if (!Array.isArray(value.routes) || !Array.isArray(value.sessions)) return null;
+        if (value.totals === null || typeof value.totals !== "object") return null;
+        return value;
+      }
+
+      /** 读一次统计快照；失败返回 null。 */
+      function readStats(signal) {
+        return fetch(STATS_ROUTE, { signal: signal, credentials: "same-origin" })
+          .then(function (response) {
+            if (!response.ok) return null;
+            return response.json().then(parseSnapshot);
+          })
+          .catch(function () { return null; });
+      }
+
+      /** 一张合计卡。 */
+      function StatCard(props) {
+        return jsx("div", {
+          className: "smpv-card",
+          children: [
+            jsx("div", { className: "smpv-cardK", children: props.label }),
+            jsx("div", { className: "smpv-cardV", children: props.value })
+          ]
+        });
+      }
+
+      /** 口径切换按钮组。 */
+      function ModeSwitch(props) {
+        var labels = { tokens: "按 Token", requests: "按请求", assignments: "按分配" };
+        return jsx("div", {
+          className: "smpv-switch",
+          children: MODES.map(function (mode) {
+            return jsx("button", {
+              key: mode,
+              type: "button",
+              className: "smpv-switchBtn" + (props.mode === mode ? " on" : ""),
+              onClick: function () { props.onChange(mode); },
+              children: labels[mode]
+            });
+          })
+        });
+      }
+
+      /** 一条路由的「模型 · provider」标签。 */
+      function RouteLabel(props) {
+        return jsx("span", {
+          className: "smpv-routeLabel",
+          title: props.route.model + " · " + props.route.provider,
+          children: [
+            jsx("b", { children: props.route.model }),
+            jsx("span", { children: " · " + props.route.provider })
+          ]
+        });
+      }
+
+      /** 路由分布面板：一条堆叠条 + 每条路由一行。 */
+      function RoutePanel(props) {
+        var rows = props.ranked;
+        var visible = rows.filter(function (route) { return route.measure > 0; });
+        var stack = visible.map(function (route) {
+          return jsx("i", {
+            key: route.provider + "/" + route.model,
+            className: "smpv-barI",
+            title: route.model + " · " + route.provider + " " + formatPercent(route.ratio),
+            style: { width: (route.ratio * 100).toFixed(2) + "%", background: TONE_COLORS[route.tone] }
+          });
+        });
+        return jsx("div", {
+          className: "smpv-panel",
+          children: [
+            jsx("h3", { className: "smpv-panelTitle", children: "路由分布" }),
+            rows.length === 0
+              ? jsx("div", { className: "smpv-empty", children: "还没有分配记录。" })
+              : jsx("div", {
+                className: "smpv-stack",
+                children: stack.length === 0
+                  ? jsx("div", { className: "smpv-bar", children: jsx("i", { className: "smpv-barI", style: { width: "100%", background: "var(--dsw-alias-bg-layer-2)" } }) })
+                  : jsx("div", { className: "smpv-bar", children: stack })
+              }),
+            rows.length === 0 ? null : rows.map(function (route) {
+              return jsx("div", {
+                key: route.provider + "/" + route.model,
+                className: "smpv-route",
+                children: [
+                  jsx("span", {
+                    className: "smpv-dot",
+                    style: { background: TONE_COLORS[route.tone] }
+                  }),
+                  jsx(RouteLabel, { route: route }),
+                  jsx("span", {
+                    className: "smpv-routeNums",
+                    children: [
+                      jsx("b", {
+                        children: props.mode === "requests"
+                          ? formatCount(route.measure)
+                          : formatTokens(route.measure)
+                      }),
+                      " · " + formatPercent(route.ratio)
+                    ]
+                  })
+                ]
+              });
+            })
+          ]
+        });
+      }
+
+      /** 池槽位面板：只列池内候选（池外的路由是主代理自己的模型，不归池管）。 */
+      function SlotPanel(props) {
+        var labels = { ok: "空闲", hot: "满载", down: "探测失败" };
+        var routes = props.routes.filter(function (route) { return route.inPool === true; });
+        return jsx("div", {
+          className: "smpv-panel",
+          children: [
+            jsx("h3", { className: "smpv-panelTitle", children: "池占用" }),
+            routes.length === 0
+              ? jsx("div", { className: "smpv-empty", children: "模型池为空，先在设置里添加候选。" })
+              : routes.map(function (route) {
+                var states = slotStates(route);
+                var health = routeHealth(route);
+                return jsx("div", {
+                  key: route.provider + "/" + route.model,
+                  className: "smpv-slotRow",
+                  children: [
+                    jsx(RouteLabel, { route: route }),
+                    jsx("span", {
+                      className: "smpv-routeNums",
+                      children: [
+                        jsx("b", { children: String(route.active || 0) }),
+                        "/" + String(route.maxConcurrent || 0)
+                      ]
+                    }),
+                    jsx("span", {
+                      className: "smpv-slots",
+                      children: states.map(function (state, index) {
+                        return jsx("i", { key: index, className: "smpv-slot " + state });
+                      })
+                    }),
+                    jsx("span", { className: "smpv-state " + health, children: labels[health] })
+                  ]
+                });
+              })
+          ]
+        });
+      }
+
+      /** 会话明细表。 */
+      function SessionTable(props) {
+        var rows = groupSessions(props.sessions);
+        return jsx("div", {
+          className: "smpv-panel",
+          style: { overflowX: "auto" },
+          children: [
+            jsx("h3", { className: "smpv-panelTitle", children: "会话明细" }),
+            rows.length === 0
+              ? jsx("div", { className: "smpv-empty", children: "还没有观测到模型请求。" })
+              : jsx("table", {
+                className: "smpv-table",
+                children: [
+                  jsx("thead", {
+                    children: jsx("tr", {
+                      children: [
+                        jsx("th", { style: { width: "30%" }, children: "会话" }),
+                        jsx("th", { style: { width: "7%" }, children: "类型" }),
+                        jsx("th", { style: { width: "23%" }, children: "路由" }),
+                        jsx("th", { className: "smpv-num", children: "请求" }),
+                        jsx("th", { className: "smpv-num", children: "输入" }),
+                        jsx("th", { className: "smpv-num", children: "输出" }),
+                        jsx("th", { className: "smpv-num", children: "缓存读" }),
+                        jsx("th", { className: "smpv-num", children: "缓存写" })
+                      ]
+                    })
+                  }),
+                  jsx("tbody", {
+                    children: rows.map(function (row) {
+                      var session = row.session;
+                      var routeText = session.routes.map(function (route) {
+                        return route.model + "(" + route.provider + ")";
+                      }).join(" ");
+                      var isSub = session.isSubagent === true;
+                      return jsx("tr", {
+                        key: row.kind + ":" + session.sessionId,
+                        className: row.kind,
+                        children: [
+                          jsx("td", {
+                            title: session.sessionId,
+                            children: [
+                              jsx("span", { className: "smpv-sessionMark" },
+                                row.kind === "child" ? "└" : ""
+                              ),
+                              session.title !== undefined && session.title !== null
+                                ? session.title
+                                : session.sessionId
+                            ]
+                          }),
+                          jsx("td", {
+                            className: "smpv-kind",
+                            children: isSub ? "子代理" : "主代理"
+                          }),
+                          jsx("td", {
+                            className: "smpv-routeLabel",
+                            title: routeText,
+                            children: routeText || "—"
+                          }),
+                          jsx("td", { className: "smpv-num", children: formatCount(session.requests) }),
+                          jsx("td", { className: "smpv-num", children: formatTokens(session.tokens.inputTokens) }),
+                          jsx("td", { className: "smpv-num", children: formatTokens(session.tokens.outputTokens) }),
+                          jsx("td", { className: "smpv-num", children: formatTokens(session.tokens.cacheReadTokens) }),
+                          jsx("td", { className: "smpv-num", children: formatTokens(session.tokens.cacheWriteTokens) })
+                        ]
+                      });
+                    })
+                  })
+                ]
+              })
+          ]
+        });
+      }
+
+      /** 统计主页面。 */
+      function StatsPage(props) {
+        var state = props.useStats();
+        var snapshot = state.snapshot;
+        var mode = state.mode;
+        var ranked = useMemo(function () {
+          if (snapshot === null) return [];
+          return rankRoutes(snapshot.routes, mode);
+        }, [snapshot, mode]);
+        var tokens = snapshot === null ? null : snapshot.totals.tokens;
+        var totals = snapshot === null ? null : snapshot.totals;
+        return jsx("div", {
+          className: "smpv-page",
+          children: [
+            jsx("div", {
+              className: "smpv-head",
+              children: [
+                jsx("div", {
+                  children: [
+                    jsx("h1", { className: "smpv-title", children: "子代理模型池 · 统计" }),
+                    jsx("p", { className: "smpv-sub", children: "进程内累计，重启后归零。" })
+                  ]
+                }),
+                jsx("div", {
+                  className: "smpv-actions",
+                  children: [
+                    jsx(ModeSwitch, { mode: mode, onChange: state.setMode }),
+                    jsx("button", {
+                      type: "button",
+                      className: "smpv-refresh",
+                      disabled: state.loading,
+                      onClick: state.reload,
+                      children: state.loading ? "刷新中…" : "刷新"
+                    })
+                  ]
+                })
+              ]
+            }),
+            state.error ? jsx("div", { className: "smpv-err", children: state.error }) : null,
+            jsx("div", {
+              className: "smpv-cards",
+              children: [
+                jsx(StatCard, { label: "分配次数", value: formatCount(totals === null ? 0 : totals.assignments) }),
+                jsx(StatCard, { label: "模型请求", value: formatCount(totals === null ? 0 : totals.requests) }),
+                jsx(StatCard, { label: "未缓存输入", value: formatTokens(tokens === null ? 0 : tokens.inputTokens) }),
+                jsx(StatCard, { label: "输出", value: formatTokens(tokens === null ? 0 : tokens.outputTokens) }),
+                jsx(StatCard, { label: "缓存读", value: formatTokens(tokens === null ? 0 : tokens.cacheReadTokens) }),
+                jsx(StatCard, { label: "缓存写", value: formatTokens(tokens === null ? 0 : tokens.cacheWriteTokens) }),
+                jsx(StatCard, { label: "回退父路由", value: formatCount(totals === null ? 0 : totals.fallbacks) })
+              ]
+            }),
+            jsx("div", {
+              className: "smpv-grid",
+              children: [
+                jsx(RoutePanel, { ranked: ranked, mode: mode }),
+                jsx(SlotPanel, { routes: snapshot === null ? [] : snapshot.routes })
+              ]
+            }),
+            jsx(SessionTable, { sessions: snapshot === null ? [] : snapshot.sessions }),
+            jsx("div", {
+              className: "smpv-foot",
+              children: [
+                jsx("span", { children: "探测失败 " + formatCount(totals === null ? 0 : totals.probeFailures) }),
+                jsx("span", { children: "token 口径与 DSH tokenUsage 投影一致：输入不含缓存。" })
+              ]
+            })
+          ]
+        });
+      }
+
+      /** 侧栏面板图标。 */
+      function PoolIcon(props) {
+        return jsx(primitives.IconGaugeOutlineRegular, { size: props.size });
+      }
+
+      /**
+       * 统计页的状态源：极简 store（getSnapshot/subscribe）+ 一次 fetch。
+       */
+      function createStatsSource() {
+        var listeners = [];
+        var snapshot = null;
+        var error = null;
+        var loading = false;
+        var controller = null;
+        var notify = function () {
+          listeners.forEach(function (listener) { listener(); });
+        };
+        var load = function () {
+          if (controller !== null) controller.abort();
+          controller = new AbortController();
+          loading = true;
+          error = null;
+          notify();
+          readStats(controller.signal).then(function (value) {
+            if (controller === null || controller.signal.aborted) return;
+            loading = false;
+            if (value === null) {
+              error = "读取统计失败：宿主接口不可用。";
+            } else {
+              snapshot = value;
+            }
+            notify();
+          });
+        };
+        return {
+          getSnapshot: function () {
+            return { snapshot: snapshot, error: error, loading: loading };
+          },
+          subscribe: function (listener) {
+            listeners.push(listener);
+            return function () {
+              var index = listeners.indexOf(listener);
+              if (index >= 0) listeners.splice(index, 1);
+            };
+          },
+          load: load
+        };
+      }
+
+      /**
+       * 统计页的 useStats 钩子：订阅 store，返回当前快照与操作。
+       *
+       * 通过 slot 的 inject 面直接下发一个函数（不是 hooks 源）：渲染器只把
+       * `hooks` 里的源绑成选择器钩子，普通 props 会被原样透传给组件
+       * （dsh-client-ui-renderer/lib/client.js:443-459）。这里要的是一个
+       * 带 React hooks 的函数，只能当普通 prop 传。
+       */
+      function createStatsHook(source) {
+        return function useStats() {
+          var state = useState(function () { return source.getSnapshot(); });
+          var setState = state[1];
+          useEffect(function () {
+            var listener = function () { setState(source.getSnapshot()); };
+            return source.subscribe(listener);
+          }, []);
+          var modeState = useState("tokens");
+          return {
+            snapshot: state[0].snapshot,
+            error: state[0].error,
+            loading: state[0].loading,
+            mode: modeState[0],
+            setMode: modeState[1],
+            reload: function () { source.load(); }
+          };
+        };
+      }
+
+      function registerStats(ctx) {
+        var source = createStatsSource();
+        ctx.effect(function () {
+          source.load();
+          return function () {};
+        }, "subagent-model-pool: 统计源");
+        var useStats = createStatsHook(source);
+        ctx.effect(function () {
+          return ctx.slots.inject("main", function () {
+            return ctx.slots.register({
+              name: "main",
+              key: PANEL_ID,
+              label: "模型池统计",
+              inject: function () { return { useStats: useStats }; }
+            }, StatsPage);
+          });
+        }, "subagent-model-pool: 统计主页面");
+        ctx.effect(function () {
+          return ctx.slots.inject("sidebar.panellist", function () {
+            return ctx.slots.register({
+              name: "sidebar.panellist",
+              id: PANEL_ID,
+              order: 30,
+              label: "模型池统计"
+            }, PoolIcon);
+          });
+        }, "subagent-model-pool: 统计侧栏入口");
+      }
+
       function apply(ctx) {
         registerSettings(ctx);
+        registerStats(ctx);
       }
 
       exports.apply = apply;
@@ -733,9 +1325,21 @@
         SETTINGS_NS: SETTINGS_NS,
         STRATEGIES: STRATEGIES,
         DEFAULT_MAX_CONCURRENT: DEFAULT_MAX_CONCURRENT,
+        PANEL_ID: PANEL_ID,
+        STATS_ROUTE: STATS_ROUTE,
+        MODES: MODES,
         normalizePools: normalizePools,
         buildGroups: buildGroups,
-        poolKey: poolKey
+        poolKey: poolKey,
+        measureOf: measureOf,
+        rankRoutes: rankRoutes,
+        slotStates: slotStates,
+        routeHealth: routeHealth,
+        formatCount: formatCount,
+        formatTokens: formatTokens,
+        formatPercent: formatPercent,
+        groupSessions: groupSessions,
+        parseSnapshot: parseSnapshot
       };
       return module.exports;
     }

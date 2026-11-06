@@ -30,6 +30,7 @@
 
 import z from "@deepseek-ai/schemastery";
 import { ModelPool, DEFAULT_MAX_CONCURRENT } from "./lib/pool.js";
+import { PoolStats } from "./lib/stats.js";
 import { STRATEGIES } from "./lib/strategy.js";
 import { isPoolableSubagent, persistedRouteOf, sameRoute } from "./lib/identity.js";
 import { hasExplicitRoute, patchStartActivation } from "./lib/explicit.js";
@@ -39,6 +40,38 @@ const PROBE_TIMEOUT_MS = 10_000;
 
 /** 探测请求的最大输出 token——够收到首个 chunk 即可。 */
 const PROBE_MAX_TOKENS = 8;
+
+/**
+ * 统计视图的取数路由（Connection 的精确 Fetch 路由）。
+ *
+ * 走 Connection 而不是自建 HTTP 服务：Connection 已经把
+ * 「Host/Origin 围栏 + 浏览器会话鉴权」做完了
+ * （dsh-client-connection/lib/index.js:742 `admit()`、
+ * :777 `isTrusted()`），第三方插件自己开路由等于重写一遍鉴权。
+ */
+const STATS_PATH = "/api/subagent-pool.stats";
+
+/**
+ * 一条 Assistant 结算事件报告的 usage。
+ *
+ * `assistant/message` 直接带 `usage`；`assistant/attempt`（没有可见消息的
+ * 失败/中断尝试）把 usage 藏在内嵌 stream 的最后一个 usage chunk 里
+ * （dsh-token-meter/lib/types/usage-projection.js:62 `usageOf()`）。
+ * @param {object} event - 会话事件。
+ * @returns {object|undefined} usage 对象。
+ */
+function usageOfEvent(event) {
+  if (event?.type === "assistant/message") return event.data?.usage;
+  if (event?.type !== "assistant/attempt") return undefined;
+  const stream = event.data?.stream;
+  if (!Array.isArray(stream)) return undefined;
+  for (let index = stream.length - 1; index >= 0; index -= 1) {
+    const record = stream[index];
+    if (record?.type !== "chunk" || record.chunk?.type !== "usage") continue;
+    return record.chunk.usage;
+  }
+  return undefined;
+}
 
 export const name = "subagent-model-pool";
 export const inject = ["llm", "agents"];
@@ -123,6 +156,13 @@ export function apply(ctx, config) {
   // 池是可变的：配置热更新时整体换掉，监听器只装一次。
   let pool = buildPool(initial);
 
+  // 使用统计账本：独立于池实例，跨配置热更新存活（池一换，历史就丢了）。
+  const stats = new PoolStats();
+
+  // 会话标题读取器：`sessionTitle` 服务可用时用它读会话日志里折叠出的
+  // 最新标题；不可用时为 undefined，统计页退化成只显示会话 id。
+  let titleOfSession = undefined;
+
   // in-flight 探测去重：key → Promise<boolean>。探测完成后自行移除。
   const probing = new Map();
 
@@ -193,12 +233,98 @@ export function apply(ctx, config) {
   ctx.on("subagent/end", (identity) => {
     if (identity?.id === undefined) return;
     pool?.release(identity.runId, identity.id);
+    const route = stats.routeOfChild(identity.id);
+    if (route !== undefined) stats.recordRelease(route.provider, route.model, identity.id);
   });
 
   // 兜底释放：agent 销毁但没等到 subagent/end（例如创建中途失败）。
   ctx.on("agent/disposed", ({ agent }) => {
     if (agent?.session?.header?.origin !== "subagent") return;
     pool?.releaseChild(agent.id);
+    const route = stats.routeOfChild(agent.id);
+    if (route !== undefined) stats.recordRelease(route.provider, route.model, agent.id);
+  });
+
+  // ---- 用量记账：session/event ----
+  //
+  // DSH 每条会话日志事件落盘后都发 `session/event`
+  // （dsh-session/lib/types/index.d.ts:63）。主代理与子代理同进程，
+  // 监听器装在无 scope tag 的插件 ctx 上即可收到全部会话。
+  //
+  // 记两件事：
+  // 1. token 四桶 —— `assistant/message` 的 `data.usage`；
+  //    `assistant/attempt`（没有可见消息的失败/中断尝试）的 usage 藏在
+  //    内嵌 stream 里，取最后一个 usage chunk
+  //    （dsh-token-meter/lib/types/usage-projection.js:62 `usageOf()`）。
+  // 2. 这次请求实际走的 provider/model —— `request/header` 的
+  //    `header.config` 是「下一次请求要用的路由」，每个 step 一条；
+  //    `assistant/message` 的 `message.source` 是「这一次实际走的路由」，
+  //    两者在正常路径上一致（dsh-agent-loop/lib/index.js:943）。
+  //
+  // `llm/retry-started` 要作废上一个 turn/step 的替换槽，与
+  // dsh-token-meter 的 tokenUsage 投影同口径
+  // （dsh-token-meter/lib/types/usage-projection.js:92）。
+  ctx.on("session/event", (session, event) => {
+    try {
+      const type = event?.type;
+      if (type === "llm/retry-started") {
+        stats.invalidateUsageSlot(session, event.data);
+        return;
+      }
+      if (type === "request/header") {
+        // 记住这条会话「下一次请求」的路由：失败重试时没有 message.source，
+        // 只能靠它归因。
+        const config = event.data?.header?.config;
+        if (typeof config?.provider === "string" && typeof config?.model === "string") {
+          stats.rememberRoute(session, config.provider, config.model);
+        }
+        return;
+      }
+      if (type === "session/title") {
+        // 会话标题：用户改名、模型自动生成、兜底标题都写一条（latest-wins）。
+        stats.rememberTitle(session, event.data?.title);
+        return;
+      }
+      if (type === "assistant/message" || type === "assistant/attempt") {
+        // 记账前补一次标题：插件挂载前就命名的会话也能显示标题。
+        if (titleOfSession !== undefined) {
+          const title = titleOfSession(session);
+          if (typeof title === "string") stats.rememberTitle(session, title);
+        }
+      }
+      if (type !== "assistant/message" && type !== "assistant/attempt") return;
+      const usage = usageOfEvent(event);
+      if (usage === undefined) return;
+      const source = event.data?.message?.source;
+      const provider = source?.provider;
+      const model = source?.model;
+      if (typeof provider === "string" && typeof model === "string") {
+        stats.recordSessionUsage(
+          session,
+          provider,
+          model,
+          { turn: event.data?.turn, step: event.data?.step },
+          usage,
+          Date.now(),
+        );
+        return;
+      }
+      // 没有 message.source（失败/中断的尝试）：用会话记住的路由归因。
+      const remembered = stats.routeOfSession(session);
+      if (remembered === undefined) return;
+      stats.recordSessionUsage(
+        session,
+        remembered.provider,
+        remembered.model,
+        { turn: event.data?.turn, step: event.data?.step },
+        usage,
+        Date.now(),
+      );
+    } catch (error) {
+      ctx.logger?.warn?.(
+        `subagent-model-pool: 统计记账失败：${error?.message ?? String(error)}`,
+      );
+    }
   });
 
   /**
@@ -252,6 +378,7 @@ export function apply(ctx, config) {
           return ok;
         }, (error) => {
           pool_.markRejected(key);
+          stats.recordProbeFailure(route.provider, route.model);
           ctx.logger?.warn?.(
             `subagent-model-pool: ${route.provider}/${route.model} 探测失败，换下一个候选：${error?.message ?? String(error)}`,
           );
@@ -343,6 +470,7 @@ export function apply(ctx, config) {
       // 首次分配：真实探测通过的候选才用。
       const route = await allocateValidated(childId, pool_);
       if (route === undefined) {
+        stats.recordFallback();
         ctx.logger?.info?.(`subagent-model-pool: 无可用候选，${childId} 回退父路由`);
         return;
       }
@@ -352,6 +480,7 @@ export function apply(ctx, config) {
         pool_.discard(childId, undefined);
         throw error;
       }
+      stats.recordAssignment(route.provider, route.model, childId);
       ctx.logger?.info?.(
         `subagent-model-pool: ${childId} → ${routeLabel(route)}（活跃分配 ${pool_.activeCount}）`,
       );
@@ -366,4 +495,54 @@ export function apply(ctx, config) {
   ctx.effect(() => () => {
     probing.clear();
   }, "subagent-model-pool.teardown()");
+
+  // 会话标题：优先读 `session/title` 事件；插件挂载前就已命名的会话，
+  // 靠 `sessionTitle.get(session)` 读会话日志折叠出的最新标题快照补上。
+  //
+  // `sessionTitle` 同样不进顶层 inject（headless 等 profile 可能没有），
+  // 嵌套 inject 拿不到就退化成「只显示会话 id」。
+  ctx.inject(["sessionTitle"], (titleCtx) => {
+    const titleService = titleCtx.get?.("sessionTitle") ?? titleCtx.sessionTitle;
+    if (titleService === undefined) {
+      ctx.logger?.warn?.("subagent-model-pool: sessionTitle 服务不可用，会话明细只显示会话 id");
+      return;
+    }
+    titleOfSession = (session) => {
+      try {
+        return titleService.get(session)?.title;
+      } catch {
+        return undefined;
+      }
+    };
+  });
+
+  // ---- 统计视图取数路由 ----
+  //
+  // 注册在 Connection 的精确 Fetch 路由表里：路径必须以 /api 开头，
+  // 且只有 owner Peer 能到达（dsh-client-connection/lib/index.js:830）。
+  // 浏览器侧同源 fetch 会带上会话 cookie。
+  //
+  // `connection` 不在顶层 inject 里：非 Web profile（headless/avb-lab）没有
+  // 这个服务，顶层声明会让插件整体不挂载。改成嵌套 inject，Web 环境下
+  // 自动补上，其他环境安静地不提供统计页。
+  ctx.inject(["connection"], (connectionCtx) => {
+    // cordis 的 `ctx.get` 对未提交的服务返回 undefined；这里再兜一层直接取属性。
+    const connection = connectionCtx.get?.("connection") ?? connectionCtx.connection;
+    if (connection?.fetch === undefined) {
+      ctx.logger?.warn?.("subagent-model-pool: Connection 的 Fetch 路由表不可用，统计页不提供取数");
+      return;
+    }
+    connection.fetch.register({
+      path: STATS_PATH,
+      methods: ["GET"],
+      requestBody: "buffered",
+      fetch: () => {
+        const pool_ = currentPool();
+        const live = pool_?.snapshot() ?? [];
+        return Response.json(stats.snapshot(live), {
+          headers: { "cache-control": "no-store" },
+        });
+      },
+    });
+  });
 }

@@ -69,11 +69,25 @@ function stubCtx() {
     getProvider() { return undefined; }
   }
   const subagents = new Subagents();
+  // Connection 的精确 Fetch 路由表桩：统计视图的取数路由注册在这上面。
+  const fetchRoutes = [];
+  const connection = {
+    fetch: {
+      register: (route) => {
+        fetchRoutes.push(route);
+        return () => {
+          const index = fetchRoutes.indexOf(route);
+          if (index >= 0) fetchRoutes.splice(index, 1);
+        };
+      },
+    },
+  };
   const scope = {
     handlers,
     logs,
     probeCalls,
     subagents,
+    fetchRoutes,
     set probeImpl(fn) { probeState.impl = fn; },
     ctx: {
       logger: {
@@ -103,6 +117,7 @@ function stubCtx() {
         }
         if (svc === "agents") return { get: () => undefined };
         if (svc === "subagents") return subagents;
+        if (svc === "connection") return connection;
         return undefined;
       },
     },
@@ -135,7 +150,7 @@ test("apply 注册创建期分配与生命周期监听，不再改写 agent/requ
   apply(ctx, { pools: [{ provider: "c2a", model: "x", maxConcurrent: 1 }] });
   assert.deepEqual(
     [...handlers.keys()].sort(),
-    ["agent/created", "agent/disposed", "subagent/end", "subagent/start"],
+    ["agent/created", "agent/disposed", "session/event", "subagent/end", "subagent/start"],
   );
   assert.equal(handlers.has("agent/request"), false);
 });
@@ -202,6 +217,19 @@ function probeStubCtx({ failModels = [], delay = 0 } = {}) {
     getProvider() { return undefined; }
   }
   const subagents = new Subagents();
+  // Connection 的精确 Fetch 路由表桩：统计视图的取数路由注册在这上面。
+  const fetchRoutes = [];
+  const connection = {
+    fetch: {
+      register: (route) => {
+        fetchRoutes.push(route);
+        return () => {
+          const index = fetchRoutes.indexOf(route);
+          if (index >= 0) fetchRoutes.splice(index, 1);
+        };
+      },
+    },
+  };
   const ctx = {
     logger: {
       info: (m) => logs.push(["info", m]),
@@ -230,10 +258,12 @@ function probeStubCtx({ failModels = [], delay = 0 } = {}) {
           ? { get: () => undefined }
           : svc === "subagents"
             ? subagents
-            : undefined,
+            : svc === "connection"
+              ? connection
+              : undefined,
   };
   return {
-    ctx, handlers, logs, subagents, activationSpecs,
+    ctx, handlers, logs, subagents, activationSpecs, fetchRoutes,
     get prepareCalls() { return prepareCalls; },
   };
 }
