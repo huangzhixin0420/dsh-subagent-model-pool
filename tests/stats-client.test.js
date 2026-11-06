@@ -151,6 +151,17 @@ test("会话平铺列出（账本只记子代理，没有父子层级）", () =>
   assert.equal(rows[0].kind, "session");
 });
 
+test("同发起会话的子代理排在一起", () => {
+  const { groupSessions } = loadTestExports();
+  const rows = groupSessions([
+    { sessionId: "a", parentSessionId: "p2", title: "B1", requests: 1, tokens: {}, routes: [] },
+    { sessionId: "b", parentSessionId: "p1", title: "A1", requests: 1, tokens: {}, routes: [] },
+    { sessionId: "c", parentSessionId: "p2", title: "B2", requests: 1, tokens: {}, routes: [] },
+    { sessionId: "d", parentSessionId: "p1", title: "A2", requests: 1, tokens: {}, routes: [] },
+  ]);
+  assert.deepEqual(rows.map((r) => r.session.sessionId), ["b", "d", "a", "c"]);
+});
+
 test("空列表返回空数组", () => {
   const { groupSessions } = loadTestExports();
   assert.deepEqual(groupSessions([]), []);

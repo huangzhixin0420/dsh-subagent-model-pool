@@ -140,6 +140,30 @@ test("主代理会话的消耗不进池的账，只记子代理", () => {
   assert.equal(childRow.totalTokens, 90);
 });
 
+test("子代理会话带上父会话标题（主代理不进账但标题照记）", () => {
+  const stats = new PoolStats();
+  const parent = parentSessionOf("p1");
+  const child = sessionOf("c1", { parentSession: "p1" });
+  // 主代理的标题事件照样要记：列表里得能看出子代理是被哪个会话派出去的。
+  stats.rememberTitle(parent, "子代理模型池统计视图");
+  stats.rememberTitle(child, "请回答：6+6等于几？");
+  stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 70, outputTokens: 20 }, 1000);
+  const snap = stats.snapshot();
+  const row = snap.sessions.find((s) => s.sessionId === "c1");
+  assert.equal(row.title, "请回答：6+6等于几？");
+  assert.equal(row.parentTitle, "子代理模型池统计视图");
+  // 主代理本身仍然不进会话列表。
+  assert.equal(snap.sessions.find((s) => s.sessionId === "p1"), undefined);
+});
+
+test("父会话没有标题时 parentTitle 为 undefined", () => {
+  const stats = new PoolStats();
+  const child = sessionOf("c1", { parentSession: "p1" });
+  stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 10, outputTokens: 1 }, 1000);
+  const snap = stats.snapshot();
+  assert.equal(snap.sessions[0].parentTitle, undefined);
+});
+
 test("主代理会话完全不影响统计", () => {
   const stats = new PoolStats();
   stats.recordSessionUsage(

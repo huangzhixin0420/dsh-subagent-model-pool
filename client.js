@@ -877,6 +877,8 @@
         ".smpv-table tbody tr:last-child td{border-bottom:0}",
         ".smpv-table tbody tr:hover td{background:var(--smpv-tint-1)}",
         ".smpv-sessionTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}",
+        // 发起会话：降一档字色——它是上下文，不是主角。
+        ".smpv-parentTitle .smpv-sessionTitle{font-weight:400;color:var(--dsw-alias-label-tertiary)}",
         ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
         // 请求数是这行最有信息量的数字，给它主字色。
         ".smpv-numLead{color:var(--dsw-alias-label-primary);font-weight:500}",
@@ -1036,7 +1038,17 @@
        * 全是子代理，没有父子层级可分——平铺即可。
        */
       function groupSessions(sessions) {
-        return sessions.map(function (session) {
+        // 按发起会话聚合排序：同一主会话派出的子代理排在一起，
+        // 扫一眼就知道哪个主会话最费、派了多少。
+        var sorted = sessions.slice().sort(function (left, right) {
+          var lp = left.parentSessionId === undefined ? "" : String(left.parentSessionId);
+          var rp = right.parentSessionId === undefined ? "" : String(right.parentSessionId);
+          if (lp !== rp) return lp < rp ? -1 : 1;
+          var lt = left.title === undefined || left.title === null ? "" : String(left.title);
+          var rt = right.title === undefined || right.title === null ? "" : String(right.title);
+          return lt.localeCompare(rt);
+        });
+        return sorted.map(function (session) {
           return { kind: "session", session: session };
         });
       }
@@ -1257,13 +1269,15 @@
                   jsx("thead", {
                     children: jsx("tr", {
                       children: [
-                        jsx("th", { style: { width: "38%" }, children: "会话" }),
-                        jsx("th", { style: { width: "18%" }, children: "路由" }),
+                        jsx("th", { style: { width: "27%" }, children: "子代理会话" }),
+                        // 这一列回答「谁派的」——没有它，列表里一堆子代理看不出归属。
+                        jsx("th", { style: { width: "21%" }, children: "发起会话" }),
+                        jsx("th", { style: { width: "14%" }, children: "路由" }),
                         jsx("th", { className: "smpv-num", style: { width: "7%" }, children: "请求" }),
-                        jsx("th", { className: "smpv-num", style: { width: "8%" }, children: "输入" }),
-                        jsx("th", { className: "smpv-num", style: { width: "8%" }, children: "输出" }),
-                        jsx("th", { className: "smpv-num", style: { width: "11%" }, children: "缓存读" }),
-                        jsx("th", { className: "smpv-num", style: { width: "10%" }, children: "缓存写" })
+                        jsx("th", { className: "smpv-num", style: { width: "7%" }, children: "输入" }),
+                        jsx("th", { className: "smpv-num", style: { width: "7%" }, children: "输出" }),
+                        jsx("th", { className: "smpv-num", style: { width: "9%" }, children: "缓存读" }),
+                        jsx("th", { className: "smpv-num", style: { width: "8%" }, children: "缓存写" })
                       ]
                     })
                   }),
@@ -1276,6 +1290,12 @@
                       var title = session.title !== undefined && session.title !== null
                         ? session.title
                         : session.sessionId;
+                      // 父会话标题可能还没到（父会话已创建但还没命名），退回 id 前缀。
+                      var parentText = session.parentTitle !== undefined && session.parentTitle !== null
+                        ? session.parentTitle
+                        : (session.parentSessionId !== undefined
+                          ? String(session.parentSessionId).slice(0, 8)
+                          : "—");
                       return jsx("tr", {
                         key: row.kind + ":" + session.sessionId,
                         className: row.kind,
@@ -1285,6 +1305,15 @@
                             children: jsx("span", {
                               className: "smpv-sessionTitle",
                               children: title
+                            })
+                          }),
+                          jsx("td", {
+                            className: "smpv-parentTitle",
+                            title: parentText,
+                            "data-label": "发起会话",
+                            children: jsx("span", {
+                              className: "smpv-sessionTitle",
+                              children: parentText
                             })
                           }),
                           jsx("td", {
