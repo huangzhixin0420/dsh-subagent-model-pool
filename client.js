@@ -759,18 +759,25 @@
         ".smpv-actions{display:flex;align-items:center;gap:8px}",
         // 刷新按钮：加载态用旋转图标，文字不变——换文字会改变按钮宽度。
         ".smpv-refresh{display:inline-flex;align-items:center;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;padding:3px 8px;cursor:pointer;transition:background-color .16s ease,color .16s ease,border-color .16s ease}",
-        ".smpv-refresh:hover:not(:disabled){background:var(--dsw-alias-bg-layer-4);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}",
-        ".smpv-refresh:active:not(:disabled){transform:translateY(.5px)}",
-        ".smpv-refresh:disabled{cursor:default;color:var(--dsw-alias-label-tertiary)}",
+        ".smpv-refresh:hover{background:var(--dsw-alias-bg-layer-4);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}",
+        ".smpv-refresh:active{transform:translateY(.5px)}",
+        ".smpv-refresh[aria-busy=true]{cursor:progress}",
         ".smpv-refresh:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
         // spinner 绝对定位在文字左侧的固定槽位里——参与布局会把按钮撑宽 18px。
-        ".smpv-refreshSlot{position:relative;width:0;height:11px;flex:none}",
-        ".smpv-spin{position:absolute;left:0;top:0;width:11px;height:11px;border-radius:50%;border:1.5px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-accent,#2f6bff);animation:smpv-spin .7s linear infinite}",
-        "@keyframes smpv-spin{to{transform:rotate(360deg)}}",
-        "@media (prefers-reduced-motion:reduce){.smpv-spin{animation-duration:2.4s}}",
+        ".smpv-refreshSlot{position:relative;width:0;height:12px;flex:none}",
+        // 外层负责淡入淡出，内层负责旋转：两层分开，transform 不互相打架。
+        ".smpv-spinWrap{position:absolute;left:0;top:0;width:12px;height:12px;opacity:0;transform:scale(.7);transition:opacity .2s ease-out,transform .2s cubic-bezier(.2,.8,.3,1)}",
+        ".smpv-spinWrap[data-on=true]{opacity:1;transform:scale(1)}",
+        // 匀速 + 1 秒周期：线性是唯一没有顿挫感的旋转曲线，周期太快会显得急促。
+        ".smpv-spin{display:block;width:12px;height:12px;border-radius:50%;border:1.5px solid transparent;border-top-color:var(--dsw-alias-accent,#2f6bff);border-right-color:var(--dsw-alias-accent,#2f6bff);animation:smpv-spin 1s linear infinite}",
+        "@keyframes smpv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}",
+        // 减弱动效偏好：改成极慢的呼吸，不旋转。
+        "@media (prefers-reduced-motion:reduce){.smpv-spin{animation:smpv-pulse 2.4s ease-in-out infinite;border-right-color:transparent}}",
+        "@keyframes smpv-pulse{0%,100%{opacity:.35}50%{opacity:1}}",
+        "@media (prefers-reduced-motion:reduce){.smpv-spinWrap{transition:none}}",
         // 数据刷新时整块淡入，避免生硬替换。
-        ".smpv-body{animation:smpv-fade .22s ease-out}",
-        "@keyframes smpv-fade{from{opacity:.55}to{opacity:1}}",
+        ".smpv-body{animation:smpv-fade .28s cubic-bezier(.2,.7,.3,1)}",
+        "@keyframes smpv-fade{from{opacity:.35}to{opacity:1}}",
         "@media (prefers-reduced-motion:reduce){.smpv-body,.smpv-panel,.smpv-cards{animation:none}}",
         ".smpv-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px}",
         ".smpv-card{border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-background-primary);padding:6px 9px}",
@@ -1263,13 +1270,21 @@
                     jsx("button", {
                       type: "button",
                       className: "smpv-refresh",
-                      disabled: state.loading,
-                      onClick: state.reload,
+                      // 不禁用按钮：禁用会让文字整体变灰，视觉上很突兀。
+                      // 改为加载中忽略重复点击。
+                      "aria-busy": state.loading ? "true" : "false",
+                      onClick: function () { if (!state.loading) state.reload(); },
                       "aria-label": "刷新统计",
                       children: [
                         jsx("span", {
                           className: "smpv-refreshSlot",
-                          children: state.loading ? jsx("i", { className: "smpv-spin" }) : null
+                          children: jsx("span", {
+                            className: "smpv-spinWrap",
+                            // 常驻挂载，只切 data-on —— 这样加载快时也能淡入淡出，
+                            // 而不是瞬间出现又瞬间消失。
+                            "data-on": state.loading ? "true" : "false",
+                            children: jsx("i", { className: "smpv-spin" })
+                          })
                         }),
                         "刷新"
                       ]
