@@ -156,6 +156,36 @@ test("子代理会话带上父会话标题（主代理不进账但标题照记�
   assert.equal(snap.sessions.find((s) => s.sessionId === "p1"), undefined);
 });
 
+test("子代理名字优先用 catalog 的 label，不是提示词截断", () => {
+  const stats = new PoolStats();
+  const child = sessionOf("c1", { parentSession: "p1" });
+  // 父会话派发时记下的 description
+  stats.rememberLabel("c1", "核实主会话模型池可行性");
+  // 子代理只有 fallback 标题（提示词截断）
+  stats.rememberTitle(child, "你在 DeepSeek Harness（DSH）的源");
+  stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 40, outputTokens: 8 }, 1000);
+  const snap = stats.snapshot();
+  const row = snap.sessions.find((s) => s.sessionId === "c1");
+  assert.equal(row.label, "核实主会话模型池可行性");
+  assert.equal(row.title, "你在 DeepSeek Harness（DSH）的源");
+});
+
+test("没有 catalog label 时 label 为 undefined", () => {
+  const stats = new PoolStats();
+  const child = sessionOf("c1", { parentSession: "p1" });
+  stats.rememberTitle(child, "某个提示词截断");
+  stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 10, outputTokens: 1 }, 1000);
+  const snap = stats.snapshot();
+  assert.equal(snap.sessions[0].label, undefined);
+});
+
+test("空 label 和空 childId 都不记", () => {
+  const stats = new PoolStats();
+  stats.rememberLabel("", "有名字但没 id");
+  stats.rememberLabel("c1", "");
+  assert.equal(stats.labelOfSession({ id: "c1" }), undefined);
+});
+
 test("父会话没有标题时 parentTitle 为 undefined", () => {
   const stats = new PoolStats();
   const child = sessionOf("c1", { parentSession: "p1" });

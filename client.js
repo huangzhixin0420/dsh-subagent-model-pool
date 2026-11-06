@@ -879,6 +879,7 @@
         ".smpv-sessionTitle{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}",
         // 发起会话：降一档字色——它是上下文，不是主角。
         ".smpv-parentTitle .smpv-sessionTitle{font-weight:400;color:var(--dsw-alias-label-tertiary)}",
+        ".smpv-sessionSub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary)}",
         ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
         // 请求数是这行最有信息量的数字，给它主字色。
         ".smpv-numLead{color:var(--dsw-alias-label-primary);font-weight:500}",
@@ -1044,9 +1045,10 @@
           var lp = left.parentSessionId === undefined ? "" : String(left.parentSessionId);
           var rp = right.parentSessionId === undefined ? "" : String(right.parentSessionId);
           if (lp !== rp) return lp < rp ? -1 : 1;
-          var lt = left.title === undefined || left.title === null ? "" : String(left.title);
-          var rt = right.title === undefined || right.title === null ? "" : String(right.title);
-          return lt.localeCompare(rt);
+          // 组内按「显示名」排（label 优先），和表格里看到的一致。
+          var lt = left.label ?? left.title ?? "";
+          var rt = right.label ?? right.title ?? "";
+          return String(lt).localeCompare(String(rt));
         });
         return sorted.map(function (session) {
           return { kind: "session", session: session };
@@ -1269,7 +1271,7 @@
                   jsx("thead", {
                     children: jsx("tr", {
                       children: [
-                        jsx("th", { style: { width: "27%" }, children: "子代理会话" }),
+                        jsx("th", { style: { width: "27%" }, children: "子代理" }),
                         // 这一列回答「谁派的」——没有它，列表里一堆子代理看不出归属。
                         jsx("th", { style: { width: "21%" }, children: "发起会话" }),
                         jsx("th", { style: { width: "14%" }, children: "路由" }),
@@ -1287,9 +1289,20 @@
                       var routeText = session.routes.map(function (route) {
                         return route.model + "(" + route.provider + ")";
                       }).join(" ");
-                      var title = session.title !== undefined && session.title !== null
+                      // 名字优先级：子代理 label（父会话派发时给的 description）
+                      // > session.title（子代理只有提示词截断）> sessionId。
+                      var rawTitle = session.label !== undefined && session.label !== null && session.label !== ""
+                        ? session.label
+                        : (session.title !== undefined && session.title !== null
+                          ? session.title
+                          : session.sessionId);
+                      var title = rawTitle;
+                      // 有 label 时，title 退成副标题（提示词截断），保留一点上下文。
+                      var subTitle = session.label !== undefined && session.label !== null
+                        && session.title !== undefined && session.title !== null
+                        && session.title !== session.label
                         ? session.title
-                        : session.sessionId;
+                        : null;
                       // 父会话标题可能还没到（父会话已创建但还没命名），退回 id 前缀。
                       var parentText = session.parentTitle !== undefined && session.parentTitle !== null
                         ? session.parentTitle
@@ -1301,11 +1314,19 @@
                         className: row.kind,
                         children: [
                           jsx("td", {
-                            title: title + " · " + session.sessionId,
-                            children: jsx("span", {
-                              className: "smpv-sessionTitle",
-                              children: title
-                            })
+                            title: [rawTitle, subTitle, session.sessionId].filter(Boolean).join(" · "),
+                            children: [
+                              jsx("span", {
+                                className: "smpv-sessionTitle",
+                                children: rawTitle
+                              }),
+                              subTitle === null
+                                ? null
+                                : jsx("span", {
+                                  className: "smpv-sessionSub",
+                                  children: subTitle
+                                })
+                            ]
                           }),
                           jsx("td", {
                             className: "smpv-parentTitle",

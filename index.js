@@ -285,6 +285,18 @@ export function apply(ctx, config) {
         stats.rememberTitle(session, event.data?.title);
         return;
       }
+      if (type === "subagent/catalog") {
+        // 子代理的名字：父会话在派发子代理时记下 `label`，值是调用方给的
+        // description（「核实主会话模型池可行性」这种）。DSH 自己的子代理下拉
+        // 显示的就是它，比 session/title 的提示词截断可读得多——而且子代理
+        // 永远拿不到 LLM 标题（标题提供方只对无父会话的会话自动运行）。
+        const label = event.data?.label;
+        const childId = event.data?.childId;
+        if (typeof label === "string" && typeof childId === "string") {
+          stats.rememberLabel(childId, label);
+        }
+        return;
+      }
       if (type === "assistant/message" || type === "assistant/attempt") {
         // 记账前补一次标题：插件挂载前就命名的会话也能显示标题。
         if (titleOfSession !== undefined) {
