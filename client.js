@@ -759,8 +759,8 @@
         // 根容器 flex:1 + min-height:0 + overflow-y:auto。
         ".smpv-page{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}",
         ".smpv-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}",
+        ".smpv-head .smpv-actions{margin-left:auto}",
         ".smpv-title{margin:0;font-size:14px;line-height:20px;font-weight:600}",
-        ".smpv-sub{margin:2px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
         ".smpv-actions{display:flex;align-items:center;gap:8px}",
         // 刷新按钮：加载态用旋转图标，文字不变——换文字会改变按钮宽度。
         ".smpv-refresh{display:inline-flex;align-items:center;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-background-primary);color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;padding:3px 8px;cursor:pointer;transition:background-color .16s ease,color .16s ease,border-color .16s ease}",
@@ -843,7 +843,6 @@
         ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;transition:opacity .14s ease-out}",
         ".smpv-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;padding:12px 6px;text-align:center}",
         ".smpv-err{color:var(--dsw-alias-state-error-primary,#d5393a);font-size:12px;line-height:18px;padding:12px 6px}",
-        ".smpv-foot{display:flex;gap:12px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
         // ===== 移动端 H5 适配（沿用 DSH 前端的 width<=767px / width<=480px 断点）=====
         // 窄屏：标题区竖排、按钮组占满一行、两栏面板改单栏、卡片改 2 列。
         "@media (width<=767px){",
@@ -857,7 +856,6 @@
         ".smpv-grid{grid-template-columns:1fr;gap:8px}",
         ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}",
         ".smpv-card{padding:5px 8px}",
-        ".smpv-foot{gap:6px}",
         // 窄屏基本就是手机：可点区域放大到 34px 以上（不必依赖 pointer:coarse）。
         ".smpv-switchBtn{padding:8px 9px;min-height:34px;display:inline-flex;align-items:center;justify-content:center}",
         ".smpv-refresh{min-height:34px;padding:8px 10px}",
@@ -1264,12 +1262,7 @@
             jsx("div", {
               className: "smpv-head",
               children: [
-                jsx("div", {
-                  children: [
-                    jsx("h1", { className: "smpv-title", children: "子代理模型池 · 统计" }),
-                    jsx("p", { className: "smpv-sub", children: "进程内累计，重启后归零。" })
-                  ]
-                }),
+                jsx("h1", { className: "smpv-title", children: "子代理模型池 · 统计" }),
                 jsx("div", {
                   className: "smpv-actions",
                   children: [
@@ -1315,7 +1308,8 @@
                     jsx(StatCard, { label: "输出", value: formatTokens(tokens === null ? 0 : tokens.outputTokens) }),
                     jsx(StatCard, { label: "缓存读", value: formatTokens(tokens === null ? 0 : tokens.cacheReadTokens) }),
                     jsx(StatCard, { label: "缓存写", value: formatTokens(tokens === null ? 0 : tokens.cacheWriteTokens) }),
-                    jsx(StatCard, { label: "回退父路由", value: formatCount(totals === null ? 0 : totals.fallbacks) })
+                    jsx(StatCard, { label: "回退父路由", value: formatCount(totals === null ? 0 : totals.fallbacks) }),
+                    jsx(StatCard, { label: "探测失败", value: formatCount(totals === null ? 0 : totals.probeFailures) })
                   ]
                 }),
                 jsx("div", {
@@ -1327,13 +1321,6 @@
                   ]
                 }),
                 jsx(SessionTable, { sessions: snapshot === null ? [] : snapshot.sessions })
-              ]
-            }),
-            jsx("div", {
-              className: "smpv-foot",
-              children: [
-                jsx("span", { children: "探测失败 " + formatCount(totals === null ? 0 : totals.probeFailures) }),
-                jsx("span", { children: "token 口径与 DSH tokenUsage 投影一致：输入不含缓存。" })
               ]
             })
           ]
