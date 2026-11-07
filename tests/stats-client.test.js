@@ -169,7 +169,7 @@ test("空列表返回空数组", () => {
 
 // ---- 回退路由 ----
 
-test("回退路由与池内路由分组，各自算占比", () => {
+test("回退路由与池内路由共用一个分母", () => {
   const { rankRoutes } = loadTestExports();
   const ranked = rankRoutes(
     [
@@ -182,12 +182,33 @@ test("回退路由与池内路由分组，各自算占比", () => {
   const fallback = ranked.filter((r) => r.isFallback === true);
   assert.equal(pool.length, 1);
   assert.equal(pool[0].model, "free");
-  assert.equal(pool[0].ratio, 1);
   assert.equal(fallback.length, 1);
   assert.equal(fallback[0].model, "paid");
   assert.equal(fallback[0].tone, "fb");
-  // 回退组自己算占比（组内只有一条 → 100%），不混进池内分母。
-  assert.equal(fallback[0].ratio, 1);
+  // 全局分母 = 30 + 70 = 100，两段加起来正好 100%。
+  assert.equal(pool[0].ratio, 0.3);
+  assert.equal(fallback[0].ratio, 0.7);
+  assert.equal(
+    ranked.reduce((sum, r) => sum + r.ratio, 0),
+    1,
+  );
+});
+
+test("分组各算 100% 会让条子宽到 200%", () => {
+  // 回归防线：曾经池内和回退各自按组内归一，两段相加 = 200%，
+  // 被 flex 压回 100% 后回退段（真实 9%）画成近一半。
+  const { rankRoutes } = loadTestExports();
+  const ranked = rankRoutes(
+    [
+      route("c2a", "free", { totalTokens: 900 }),
+      route("c2a", "paid", { totalTokens: 100, inPool: false }),
+    ],
+    "tokens",
+  );
+  const sum = ranked.reduce((acc, r) => acc + r.ratio, 0);
+  assert.ok(Math.abs(sum - 1) < 1e-9, `两段占比之和应为 1，实际 ${sum}`);
+  const fallback = ranked.find((r) => r.isFallback === true);
+  assert.ok(Math.abs(fallback.ratio - 0.1) < 1e-9, "回退段应占 10%");
 });
 
 test("池外但没有用量的路由不显示为回退", () => {

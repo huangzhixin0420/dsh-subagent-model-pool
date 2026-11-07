@@ -835,7 +835,7 @@
         ".smpv-stack{margin:0 0 10px}",
         // 轨道加淡描边：浅色主题下 bg-layer 全是白色，纯填充在白卡片上看不见。
         ".smpv-bar{height:6px;border-radius:999px;background:var(--smpv-tint-2);display:flex;overflow:hidden}",
-        ".smpv-barI{display:block;height:100%;transition:width .3s cubic-bezier(.2,.8,.3,1)}",
+        ".smpv-barI{display:block;height:100%;flex:0 0 auto;transition:width .3s cubic-bezier(.2,.8,.3,1)}",
         ".smpv-barGap{display:block;width:2px;height:100%;flex:none;background:var(--dsw-alias-bg-base,#fff)}",
         ".smpv-barI.fb{opacity:.6}",
         ".smpv-route{display:grid;grid-template-columns:8px minmax(0,1fr) auto auto;gap:9px;align-items:center;padding:4px 0}",
@@ -905,7 +905,7 @@
         ".smpv-switch{flex:1;display:flex}",
         ".smpv-switchBtn{flex:1;text-align:center}",
         // 指标条改两列：四格横排在手机上每格只有 60px，数字会截断。
-        ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:1fr;margin:16px 0}",
+        ".smpv-cards{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:auto;flex:none;margin:16px 0}",
         ".smpv-card{padding:10px 12px}",
         ".smpv-card:nth-child(odd):before{content:none}",
         ".smpv-card:nth-child(n+3){border-top:.5px solid var(--dsw-alias-border-l1)}",
@@ -976,19 +976,24 @@
         var fallback = measured.filter(function (route) {
           return route.inPool !== true && measureOf(route, mode) > 0;
         }).sort(sortFn);
+        // 分母必须只有一个：池内 + 回退的合计。
+        // 分组各算 100% 会让两段宽度加起来 200%，压缩后回退段（真实 9%）
+        // 被画成近一半——条子和数字说的不是一回事。
         var poolTotal = inPool.reduce(function (sum, route) { return sum + route.measure; }, 0);
         var fallbackTotal = fallback.reduce(function (sum, route) { return sum + route.measure; }, 0);
+        var grandTotal = poolTotal + fallbackTotal;
         var toneOf = function (index) { return "t" + (index % 4); };
+        var ratioOf = function (route) { return grandTotal === 0 ? 0 : route.measure / grandTotal; };
         var poolRanked = inPool.map(function (route, index) {
           return Object.assign({}, route, {
             tone: toneOf(index),
-            ratio: poolTotal === 0 ? 0 : route.measure / poolTotal
+            ratio: ratioOf(route)
           });
         });
-        var fallbackRanked = fallback.map(function (route, index) {
+        var fallbackRanked = fallback.map(function (route) {
           return Object.assign({}, route, {
             tone: "fb",
-            ratio: fallbackTotal === 0 ? 0 : route.measure / fallbackTotal,
+            ratio: ratioOf(route),
             isFallback: true
           });
         });
