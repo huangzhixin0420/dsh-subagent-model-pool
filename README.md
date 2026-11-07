@@ -194,8 +194,9 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 - **`jsx` 是 automatic runtime**：`jsx(type, props, key)`，多子元素必须写进 `props.children`（`children: [...]`）。写成 `jsx(type, props, child1, child2)` 会在渲染时抛 `Cannot read properties of null (reading 'key')`。
 - **统计页的 store 用普通 prop 下发**：`inject` 面里的 `hooks` 会被渲染器绑成选择器钩子，而这里要传的是一个带 React hooks 的函数，只能当普通 prop 传（`{ useStats: fn }`）。
 - **账本必须由 `apply` 闭包持有**，不能挂在池实例上：配置热更新会整体换池，挂在池上历史就丢了。
+- **换池时必须迁移占用记录**（`ModelPool.inherit(previous)`）：不迁的话新池 `active` 全 0，统计页看不出还有子代理在跑，并发上限也会失效（能再派满额），且子代理结束时 `release()` 打空导致占用永久泄漏。迁移按 `provider/model` 重新映射——换池后候选顺序可能变，旧池的下标不能直接用。注意别把方法取名成 `adopt`：池上已有 `adopt(childId, runId, route)` 用于锁定已分配路由，同类里同名方法后定义的赢，会静默覆盖。
 - **子代理状态必须从 `ctx.on("subagent/start"|"subagent/end")` 更新，不能等 `session/event`**：这两个生命周期事件走 cordis 事件总线（`createLifecycleEmitter`），**不落 session log**，所以永远不会以 `session/event` 的形式到达。写错入口的症状是子代理答完退出了，页面还显示「进行中」。`agent/disposed` 只作兜底释放。
-- **API 顶层带 `health` 字段用于自诊断**：`{poolReady, explicitTrackingReady, activeCount, trackedSessions}`。`explicitTrackingReady` 反映 `patchStartActivation()` 是否成功打上补丁——如果它是 `false`，`agent/created` 里的整个分配分支会被跳过，池根本不工作，但页面上只会表现为「分配次数一直是 0」。排查 `assignments: 0` 时先看这个字段，不要直接当成 bug：没有派过子代理时它本来就是 0。
+- **API 顶层带 `health` 字段用于自诊断**：`{poolReady, explicitTrackingReady, activeCount, trackedSessions, poolGeneration, migratedOccupancy}`。`poolGeneration` 是换过几代池，`migratedOccupancy` 是累计迁移的占用数——改配置后看这两个数就知道旧占用有没有带过来，只看 `active` 不行（它恰好为 0 时分不清是没人在跑还是丢了）。`explicitTrackingReady` 反映 `patchStartActivation()` 是否成功打上补丁——如果它是 `false`，`agent/created` 里的整个分配分支会被跳过，池根本不工作，但页面上只会表现为「分配次数一直是 0」。排查 `assignments: 0` 时先看这个字段，不要直接当成 bug：没有派过子代理时它本来就是 0。
 
 ## 实测验证（2026-11-02 ~ 11-03）
 
