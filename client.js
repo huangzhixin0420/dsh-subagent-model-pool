@@ -897,7 +897,6 @@
         ".smpv-run.done:before{border:.5px solid var(--dsw-alias-border-l2);background:transparent}",
         "@media (prefers-reduced-motion:no-preference){.smpv-run.running:before{animation:smpv-halo 2.4s ease-in-out infinite}}",
         "@keyframes smpv-halo{0%,100%{box-shadow:0 0 0 2px color-mix(in srgb, var(--smpv-ok) 22%, transparent)}50%{box-shadow:0 0 0 3.5px color-mix(in srgb, var(--smpv-ok) 10%, transparent)}}",
-        ".smpv-sessionSub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary)}",
         ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
         // 请求数是这行最有信息量的数字，给它主字色。
         ".smpv-numLead{color:var(--dsw-alias-label-primary);font-weight:500}",
@@ -1382,12 +1381,8 @@
                                   children: rawTitle
                                 })
                               }),
-                              subTitle === null
-                                ? null
-                                : jsx("span", {
-                                  className: "smpv-sessionSub",
-                                  children: subTitle
-                                })
+                              // 提示词截断不再单独占一行：它是残句，读不出信息，
+                              // 白占一行高度。完整文本留在 td 的 title 里，hover 可见。
                             ]
                           }),
                           jsx("td", {
