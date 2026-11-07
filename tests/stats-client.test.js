@@ -162,6 +162,45 @@ test("同发起会话的子代理排在一起", () => {
   assert.deepEqual(rows.map((r) => r.session.sessionId), ["b", "d", "a", "c"]);
 });
 
+test("部分占用不能叫空闲", () => {
+  const { routeHealth } = loadTestExports();
+  // 2/6：探测没失败、也没满载，但它正在被用
+  assert.equal(routeHealth({ active: 2, maxConcurrent: 6, probeFailures: 0 }), "busy");
+  assert.equal(routeHealth({ active: 0, maxConcurrent: 6, probeFailures: 0 }), "ok");
+  assert.equal(routeHealth({ active: 6, maxConcurrent: 6, probeFailures: 0 }), "hot");
+  assert.equal(routeHealth({ active: 1, maxConcurrent: 6, probeFailures: 1 }), "down");
+});
+
+test("池占用按 weight 降序排（strict-priority 的派发顺序）", () => {
+  const { sortSlotsByPriority } = loadTestExports();
+  const sorted = sortSlotsByPriority([
+    route("c2a", "subagent", { weight: 1 }),
+    route("c2a", "free", { weight: 8 }),
+    route("c2a", "paid", { weight: 18 }),
+  ]);
+  // 第一行必须是 weight 最大的——它没满就只会派给它。
+  assert.deepEqual(sorted.map((r) => r.model), ["paid", "free", "subagent"]);
+});
+
+test("同 weight 保持配置顺序", () => {
+  const { sortSlotsByPriority } = loadTestExports();
+  const sorted = sortSlotsByPriority([
+    route("c2a", "a", { weight: 5 }),
+    route("c2a", "b", { weight: 5 }),
+    route("c2a", "c", { weight: 5 }),
+  ]);
+  assert.deepEqual(sorted.map((r) => r.model), ["a", "b", "c"]);
+});
+
+test("缺 weight 的候选按 1 处理", () => {
+  const { sortSlotsByPriority } = loadTestExports();
+  const sorted = sortSlotsByPriority([
+    route("c2a", "noWeight", {}),
+    route("c2a", "high", { weight: 9 }),
+  ]);
+  assert.deepEqual(sorted.map((r) => r.model), ["high", "noWeight"]);
+});
+
 test("未归属请求数 = 累计 - 明细之和", () => {
   const { unattributedRequests } = loadTestExports();
   const totals = { requests: 149 };

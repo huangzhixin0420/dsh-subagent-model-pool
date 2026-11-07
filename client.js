@@ -860,6 +860,7 @@
         ".smpv-fbTag{font-size:11px;line-height:15px;padding:0 5px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--smpv-tint-2);flex:none}",
 
         // ===== 池占用 =====
+        ".smpv-rank{flex:none;width:14px;text-align:center;font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-size:11px;line-height:15px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary)}",
         ".smpv-slotRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:5px 0}",
         ".smpv-slots{display:flex;gap:3px;align-items:center;flex-wrap:wrap}",
         ".smpv-slot{width:14px;height:14px;border-radius:4px;background:var(--smpv-tint-2);border:.5px solid transparent}",
@@ -872,6 +873,7 @@
         ".smpv-state{display:inline-flex;align-items:center;gap:5px;font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
         ".smpv-state:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}",
         ".smpv-state.ok{color:var(--smpv-ok)}",
+        ".smpv-state.busy{color:var(--dsw-alias-label-primary)}",
         ".smpv-state.hot{color:var(--dsw-alias-state-warning-primary,#c77d0a)}",
         ".smpv-state.down{color:var(--dsw-alias-state-error-primary,#d5393a)}",
         ".smpv-slotNum{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
@@ -1022,10 +1024,20 @@
       }
 
       /** 路由健康状态。 */
+      /**
+       * 一条候选的占用状态。
+       *
+       * 「健康」和「空闲」是两件事：2/6 的候选探测正常、也没满载，但它
+       * 正在被占用，不能叫空闲。四态：探测失败 > 满载 > 占用中 > 空闲。
+       * @param {object} route - 路由统计项。
+       * @returns {"down"|"hot"|"busy"|"ok"} 状态。
+       */
       function routeHealth(route) {
         if ((route.probeFailures || 0) > 0) return "down";
         var capacity = route.maxConcurrent || 0;
-        if (capacity > 0 && (route.active || 0) >= capacity) return "hot";
+        var active = route.active || 0;
+        if (capacity > 0 && active >= capacity) return "hot";
+        if (active > 0) return "busy";
         return "ok";
       }
 
@@ -1259,27 +1271,58 @@
       }
 
       /** 池槽位面板：只列池内候选（池外的路由是主代理自己的模型，不归池管）。 */
+      /**
+       * 按派发优先级排序池内候选。
+       *
+       * `strict-priority` 的选法是「在有空闲名额的候选里取 weight 最大的」，
+       * 所以 weight 不是分配比例，是顺序。列表第一行就是「只要它没满，
+       * 只派给它」那一个。同权重按原配置顺序稳定排序。
+       * @param {Array<object>} routes - 池内候选。
+       * @returns {Array<object>} 排序后的新数组。
+       */
+      function sortSlotsByPriority(routes) {
+        return routes
+          .map(function (route, index) { return { route: route, index: index }; })
+          .sort(function (a, b) {
+            var aw = typeof a.route.weight === "number" ? a.route.weight : 1;
+            var bw = typeof b.route.weight === "number" ? b.route.weight : 1;
+            return bw - aw || a.index - b.index;
+          })
+          .map(function (item) { return item.route; });
+      }
+
       function SlotPanel(props) {
-        var labels = { ok: "空闲", hot: "满载", down: "探测失败" };
-        var routes = props.routes.filter(function (route) { return route.inPool === true; });
+        var labels = { ok: "空闲", busy: "占用中", hot: "满载", down: "探测失败" };
+        // strict-priority 下 weight 就是派发顺序：权重最高的先派，只有它并发
+        // 满了才轮到下一个。所以行顺序必须按 weight 降序，否则看到的第一行
+        // 不是「现在会被派到的那一个」。
+        var routes = sortSlotsByPriority(
+          props.routes.filter(function (route) { return route.inPool === true; })
+        );
         return jsx("div", {
           className: "smpv-panel",
           children: [
             jsx("h3", { className: "smpv-panelTitle", children: "池占用" }),
             routes.length === 0
               ? jsx("div", { className: "smpv-empty", children: "模型池为空，先在设置里添加候选。" })
-              : routes.map(function (route) {
+              : routes.map(function (route, index) {
                 var states = slotStates(route);
                 var health = routeHealth(route);
                 return jsx("div", {
                   key: route.provider + "/" + route.model,
                   className: "smpv-slotRow",
                   children: [
+                    // 优先级序号：1 就是「只要它没满，只会派给它」。
+                    jsx("span", {
+                      className: "smpv-rank",
+                      title: "派发优先级（weight " + (route.weight ?? 1) + "，数字越小越先派）",
+                      children: String(index + 1)
+                    }),
                     jsx(RouteLabel, { route: route }),
                     jsx("span", {
                       className: "smpv-slots",
-                      children: states.map(function (state, index) {
-                        return jsx("i", { key: index, className: "smpv-slot " + state });
+                      children: states.map(function (state, slotIndex) {
+                        return jsx("i", { key: slotIndex, className: "smpv-slot " + state });
                       })
                     }),
                     jsx("span", {
@@ -1706,6 +1749,7 @@
         measureOf: measureOf,
         rankRoutes: rankRoutes,
         unattributedRequests: unattributedRequests,
+        sortSlotsByPriority: sortSlotsByPriority,
         slotStates: slotStates,
         routeHealth: routeHealth,
         formatCount: formatCount,
