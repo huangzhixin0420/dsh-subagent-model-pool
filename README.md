@@ -63,15 +63,20 @@ v0.4.0 起带**统计视图**：侧栏「模型池统计」面板，一页看完
 
 | 区块 | 内容 |
 |---|---|
-| 合计条 | 分配次数、模型请求、未缓存输入、输出、缓存读、缓存写、回退父路由 |
-| 路由分布 | 一条堆叠条 + 每条路由的占比；可切「按 Token / 按请求 / 按分配」三种口径 |
-| 池占用 | 每个池内候选的并发槽位图（空闲 / 占用中 / 满载 / 探测失败）与当前占用数 |
-| 会话明细 | 主会话与子代理分行（子代理缩进），各自请求数与 token 四桶 |
+| 指标条 | 分配次数、模型请求、Token 总量、异常（回退 + 探测失败）四格；每格带 token 四桶明细 |
+| 路由分布 | 一条堆叠条 + 每条路由的占比；可切「按 Token / 按请求 / 按分配」三种口径。池内与回退共用**同一个分母**，两段相加恒为 100% |
+| 池占用 | 每个池内候选的并发槽位图与当前占用数。**按派发优先级排序**——`strict-priority` 按 weight 降序取第一个，所以行序就是派发顺序，第一行是「只要它没满就只派给它」那一个。四态：探测失败 > 满载 > 占用中 > 空闲（「健康」不等于「空闲」，2/6 的候选是占用中） |
+| 会话明细 | **只列子代理会话**，按发起它的主会话分组。名字优先用 `subagent/catalog` 的 label（即 `subagent` 工具的 description），没有则退回会话标题；名字前的圆点表示进行中（绿色脉冲）或已完成 |
+
+页头有「更新于 HH:MM」时间锚点，并每 30 秒自动刷新（面板卸载时停表）。
 
 口径说明：
 
+- **只算子代理**：主会话的 token 和请求不计入。这是子代理模型池的统计页，混入主代理会让「池分配效果」这个唯一目的失真。
+
 - **token 四桶分开**：输入是**未缓存输入**，缓存读、缓存写另计，与 DSH 的 `tokenUsage` 投影（`dsh-token-meter`）同义，不能合并成单一「输入」。
 - **替换语义**：同一个 turn/step 重复结算取最新值；`llm/retry-started` 会作废上一个槽，重试的那次全额计入（与 `dsh-token-meter` 同口径）。
+- **明细与累计会对不上，页面会说出来**：账本最多跟踪 200 个会话，淘汰后明细里没有它了，但 `totals` 是只增不减的累计值。差额在会话明细表右上角标成「其中 N 次请求来自已淘汰的会话」，不解释的话会被当成表格漏行。
 - **进程内累计**：账本在插件 `apply` 闭包里，进程重启后归零；配置热更新换池不影响账本。
   - **为什么不回读历史**：DSH 的会话日志本身是持久的（`~/.dsh/sessions/<工作区目录转码>/<agentId>/session.v4.jsonl.zstd`，含 `assistant/message` 的 usage、`request/header` 的路由、`session/title` 的标题），但本插件**只从 `session/event` 实时事件流记账**，不回放历史日志。
   - 标题是唯一的例外：`sessionTitle.get(session)` 直接读会话日志折叠出的最新标题快照，所以插件挂载前就命名的会话也能显示标题。
@@ -189,6 +194,8 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 - **`jsx` 是 automatic runtime**：`jsx(type, props, key)`，多子元素必须写进 `props.children`（`children: [...]`）。写成 `jsx(type, props, child1, child2)` 会在渲染时抛 `Cannot read properties of null (reading 'key')`。
 - **统计页的 store 用普通 prop 下发**：`inject` 面里的 `hooks` 会被渲染器绑成选择器钩子，而这里要传的是一个带 React hooks 的函数，只能当普通 prop 传（`{ useStats: fn }`）。
 - **账本必须由 `apply` 闭包持有**，不能挂在池实例上：配置热更新会整体换池，挂在池上历史就丢了。
+- **子代理状态必须从 `ctx.on("subagent/start"|"subagent/end")` 更新，不能等 `session/event`**：这两个生命周期事件走 cordis 事件总线（`createLifecycleEmitter`），**不落 session log**，所以永远不会以 `session/event` 的形式到达。写错入口的症状是子代理答完退出了，页面还显示「进行中」。`agent/disposed` 只作兜底释放。
+- **API 顶层带 `health` 字段用于自诊断**：`{poolReady, explicitTrackingReady, activeCount, trackedSessions}`。`explicitTrackingReady` 反映 `patchStartActivation()` 是否成功打上补丁——如果它是 `false`，`agent/created` 里的整个分配分支会被跳过，池根本不工作，但页面上只会表现为「分配次数一直是 0」。排查 `assignments: 0` 时先看这个字段，不要直接当成 bug：没有派过子代理时它本来就是 0。
 
 ## 实测验证（2026-11-02 ~ 11-03）
 
