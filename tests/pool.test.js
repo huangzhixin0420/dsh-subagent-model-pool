@@ -289,3 +289,77 @@ test("validated 与 rejected 独立计时", (t) => {
   assert.equal(pool.isValidated(key), false);
   assert.equal(pool.isRejected(key), false, "过期只是回到未探测，不是拉黑");
 });
+
+// ---- 配置热更新时的占用迁移 ----
+//
+// 换池不迁占用会有三个后果：统计页占用归零、并发上限失效（能再派满额）、
+// 子代理结束时 release 打空导致永久泄漏。
+
+test("换池后占用不丢", () => {
+  const before = new ModelPool(POOLS, "strict-priority");
+  before.allocate("child-1", "run-1");
+  assert.equal(before.activeCount, 1);
+
+  // 模拟改配置后重建（候选顺序故意反过来，考验按 routeKey 而不是下标映射）
+  const after = new ModelPool([...POOLS].reverse(), "strict-priority");
+  const migrated = after.inherit(before);
+
+  assert.equal(migrated, 1, "应迁移 1 个占用");
+  assert.equal(after.activeCount, 1, "换池后占用不能归零");
+});
+
+test("换池后并发上限仍然生效", () => {
+  const single = [{ provider: "c2a", model: "only", maxConcurrent: 1 }];
+  const before = new ModelPool(single, "strict-priority");
+  before.allocate("child-1", "run-1");
+  assert.equal(before.activeCount, 1);
+
+  const after = new ModelPool(single, "strict-priority");
+  after.inherit(before);
+  // 上限 1 已被旧占用占满，新子代理应拿不到路由
+  assert.equal(after.allocate("child-2", "run-2"), undefined, "不能超发");
+});
+
+test("换池后子代理结束能正常释放", () => {
+  const before = new ModelPool(POOLS, "strict-priority");
+  before.allocate("child-1", "run-1");
+
+  const after = new ModelPool(POOLS, "strict-priority");
+  after.inherit(before);
+  assert.equal(after.activeCount, 1);
+
+  assert.equal(after.release("run-1", "child-1"), true, "旧 run 的释放要打到新池上");
+  assert.equal(after.activeCount, 0, "释放后归零，不泄漏");
+});
+
+test("候选被删掉时占用丢弃但不报错", () => {
+  const before = new ModelPool(POOLS, "strict-priority");
+  before.allocate("child-1", "run-1");
+
+  // 新配置里没有 subagent 这个候选了
+  const after = new ModelPool([{ provider: "c2a", model: "free" }], "strict-priority");
+  const migrated = after.inherit(before);
+
+  assert.equal(migrated, 0, "无处归属的占用不迁移");
+  assert.equal(after.activeCount, 0, "不应记到别的候选上");
+  // 该子代理仍锁着原路由，结束时 release 静默无效即可，不能抛错
+  assert.equal(after.release("run-1", "child-1"), false);
+});
+
+test("受保护的分配记录跨池保留", () => {
+  const before = new ModelPool(POOLS, "strict-priority");
+  const assigned = before.allocate("child-1", "run-1");
+  assert.ok(assigned);
+
+  const after = new ModelPool(POOLS, "strict-priority");
+  after.inherit(before);
+  // 子代理 spawn 时锁定模型，换配置不改它的路由
+  assert.deepEqual(after.assignmentOf("child-1"), assigned);
+});
+
+test("inherit 自己或非池对象时安全", () => {
+  const pool = new ModelPool(POOLS, "strict-priority");
+  assert.equal(pool.inherit(pool), 0);
+  assert.equal(pool.inherit(undefined), 0);
+  assert.equal(pool.inherit({}), 0);
+});

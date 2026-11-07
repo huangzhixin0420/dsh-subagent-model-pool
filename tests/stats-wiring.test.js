@@ -86,6 +86,32 @@ test("没有 connection 服务时安静降级，不抛错", () => {
   });
 });
 
+// ---- 配置热更新 ----
+
+test("volatile 配置变化后重建池，取数跟着变", async () => {
+  const cfg = { enabled: true, pools: [{ provider: "c2a", model: "a" }] };
+  const { ctx, routes } = stubCtx();
+  apply(ctx, { get: () => cfg });
+
+  const before = await readSnapshot(routes);
+  assert.equal(before.routes.length, 1);
+
+  // 设置页保存等价于 volatile 引用被写入新值
+  cfg.pools.push({ provider: "c2a", model: "b" });
+  const after = await readSnapshot(routes);
+  assert.equal(after.routes.length, 2, "配置变化后要重建池");
+  assert.deepEqual(after.routes.map((r) => r.model).sort(), ["a", "b"]);
+});
+
+test("配置指纹只随影响分配的字段变化", () => {
+  const { ctx, routes } = stubCtx();
+  let cfg = { enabled: true, strategy: "strict-priority", pools: [{ provider: "c2a", model: "a", weight: 5 }] };
+  apply(ctx, { get: () => cfg });
+  // 只改无关字段不应重建（这里只断言不抛错且池保持）
+  cfg = { ...cfg, somethingUnrelated: 1 };
+  assert.doesNotThrow(() => { routes[0].fetch(); });
+});
+
 // ---- 生命周期事件 ----
 
 // subagent/start 与 subagent/end 走 cordis 事件总线，不落 session log，

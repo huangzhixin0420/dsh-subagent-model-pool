@@ -180,6 +180,10 @@ export function apply(ctx, config) {
   // volatile 引用的写入无法订阅，所以在每次分配前比对快照，
   // 配置变了就原地换池——设置页保存后无需重启即生效。
   let lastSignature = signatureOf(initial);
+  // 池换代次数与累计迁移的占用数：用来确认「改配置后占用没有丢」。
+  // 只看池占用面板的 active 不够——它恰好为 0 时看不出是没人在跑还是丢了。
+  let poolGeneration = 0;
+  let migratedOccupancy = 0;
   const currentPool = () => {
     const next = readConfig(config);
     const signature = signatureOf(next);
@@ -190,13 +194,18 @@ export function apply(ctx, config) {
     if (pool === undefined) {
       ctx.logger?.info?.("subagent-model-pool: 配置变更后池为空，停止分配");
     } else {
+      // 旧池的占用必须迁过来。不迁的话新池 active 全 0：统计页看不出还有人
+      // 在跑，并发上限也会失效（能再派满额），且子代理结束时 release 打空，
+      // 占用永久泄漏。
+      const migrated = previous === undefined ? 0 : pool.inherit(previous);
+      poolGeneration += 1;
+      migratedOccupancy += migrated;
       ctx.logger?.info?.(
-        `subagent-model-pool: 配置热更新，现 ${pool.snapshot().length} 个候选，策略 ${pool.strategy}`,
+        `subagent-model-pool: 配置热更新（第 ${poolGeneration} 代），`
+        + `现 ${pool.snapshot().length} 个候选，策略 ${pool.strategy}，`
+        + `迁移占用 ${migrated} 个`,
       );
     }
-    // 旧池的占用记录带不过来，让新池从零开始计数；已分配的子代理靠
-    // selection 锁定模型，不受影响。
-    void previous;
     return pool;
   };
 
@@ -564,6 +573,8 @@ export function apply(ctx, config) {
           explicitTrackingReady,
           activeCount: pool_?.activeCount ?? 0,
           trackedSessions: stats.snapshot().sessions.length,
+          poolGeneration,
+          migratedOccupancy,
         };
         return Response.json({ ...stats.snapshot(live), health }, {
           headers: { "cache-control": "no-store" },
