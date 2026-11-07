@@ -86,6 +86,43 @@ test("没有 connection 服务时安静降级，不抛错", () => {
   });
 });
 
+// ---- 生命周期事件 ----
+
+// subagent/start 与 subagent/end 走 cordis 事件总线，不落 session log，
+// 所以状态只能在这两个 handler 里更新。之前把它们写在 session/event 分支里，
+// 结果永远收不到，会话答完还显示「进行中」。
+
+test("subagent/end 之后会话状态变成 done", async () => {
+  const { ctx, handlers, routes } = stubCtx();
+  apply(ctx, { enabled: true, pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 3 }] });
+  emit(handlers, subagentSession("child-1"), {
+    type: "assistant/message",
+    data: {
+      turn: 1, step: 1,
+      usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      message: { source: { kind: "model", provider: "c2a", model: "subagent" } },
+    },
+  });
+  handlers.get("subagent/start")({ id: "child-1", runId: "run-1" });
+  let snapshot = await readSnapshot(routes);
+  assert.equal(snapshot.sessions[0].state, "running");
+
+  handlers.get("subagent/end")({ id: "child-1", runId: "run-1", stopReason: "end_turn" });
+  snapshot = await readSnapshot(routes);
+  assert.equal(snapshot.sessions[0].state, "done");
+  assert.equal(snapshot.sessions[0].stopReason, "end_turn");
+});
+
+test("没有生命周期事件时不会崩", () => {
+  const { ctx, handlers } = stubCtx();
+  apply(ctx, { enabled: true, pools: [{ provider: "c2a", model: "subagent", maxConcurrent: 3 }] });
+  assert.doesNotThrow(() => {
+    handlers.get("subagent/start")({});
+    handlers.get("subagent/end")({});
+    handlers.get("subagent/end")(undefined);
+  });
+});
+
 // ---- 记账 ----
 
 test("assistant/message 的 usage 记到实际路由上", async () => {

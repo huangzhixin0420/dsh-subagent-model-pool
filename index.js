@@ -224,6 +224,10 @@ export function apply(ctx, config) {
   // agents.create 返回之后才 observer.start()），把占位键迁到真实 runId。
   ctx.on("subagent/start", (identity) => {
     if (identity?.id === undefined) return;
+    // 记运行起点。这两条生命周期事件是本插件唯一能拿到的实时信号——
+    // 它们走 cordis 事件总线（createLifecycleEmitter），不落 session log，
+    // 所以收不到 session/event 形式，状态必须在这些 handler 里更新。
+    stats.rememberRunStart(identity.id, Date.now());
     const pool_ = currentPool();
     if (pool_ === undefined) return;
     pool_.bindRun(identity.id, identity.runId);
@@ -232,6 +236,7 @@ export function apply(ctx, config) {
   // 正常释放：一轮 run 结束。
   ctx.on("subagent/end", (identity) => {
     if (identity?.id === undefined) return;
+    stats.rememberRunEnd(identity.id, identity.stopReason, Date.now());
     pool?.release(identity.runId, identity.id);
     const route = stats.routeOfChild(identity.id);
     if (route !== undefined) stats.recordRelease(route.provider, route.model, identity.id);
@@ -283,17 +288,6 @@ export function apply(ctx, config) {
       if (type === "session/title") {
         // 会话标题：用户改名、模型自动生成、兜底标题都写一条（latest-wins）。
         stats.rememberTitle(session, event.data?.title);
-        return;
-      }
-      if (type === "subagent/start" || type === "subagent/end") {
-        // 子代理生命周期。这两个事件走 cordis 事件总线（createLifecycleEmitter），
-        // 不落 session log，所以可能收不到——PoolStats 里有启发式兜底。
-        const childId = event.data?.id;
-        if (typeof childId === "string") {
-          const now = Date.now();
-          if (type === "subagent/start") stats.rememberRunStart(childId, now);
-          else stats.rememberRunEnd(childId, event.data?.stopReason, now);
-        }
         return;
       }
       if (type === "subagent/catalog") {
