@@ -746,7 +746,7 @@
       /** 路由配色：t0 蓝 / t1 绿 / t2 橙 / t3 紫（与 DSH 内置统计表同族）。 */
       var TONE_COLORS = {
         t0: "var(--dsw-alias-accent,#2f6bff)",
-        t1: "var(--dsw-alias-state-success-primary,#1a8a4a)",
+        t1: "var(--smpv-ok)",
         t2: "var(--dsw-alias-state-warning-primary,#c77d0a)",
         t3: "#8a63d2",
         // 回退路由（池无候选，子代理退回父路由）：灰色，与池内区分。
@@ -764,10 +764,16 @@
                 // 三级色阶：用 label-primary 按比例混透明，两个主题自动成立
         // （label-primary 在浅色主题是近黑、深色主题是近白，混出来分别是叠深与叠亮）。
         // interactive-bg-hover 只有 6% 强度，叠在近白的页面底上只差 7/255，等于没画。
-        ".smpv-page{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding:18px 24px 24px;--smpv-tint-1:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);--smpv-tint-2:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);--smpv-tint-3:color-mix(in srgb,var(--dsw-alias-label-primary) 13%,transparent)}",
+        ".smpv-page{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding:18px 24px 24px;--smpv-tint-1:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);--smpv-tint-2:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);--smpv-tint-3:color-mix(in srgb,var(--dsw-alias-label-primary) 13%,transparent);--smpv-ok:#0b7a3b}",
+        // 成功色：DSH 的 --dsw-alias-state-success-primary 在**两套主题里都是**
+        // #22c55e，浅色白底只有 2.28:1——AA 要求 4.5，连非文本 3 都不到。
+        // 改用主题标记分两套：浅色压深到 5.44:1，深色沿用 DSH 原值（8.00:1）。
+        "body[data-ds-dark-theme] .smpv-page{--smpv-ok:#22c55e}",
         // 标题区：标题压在左、控件压在右，底部一条极淡分隔线收口。
         ".smpv-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:.5px solid var(--dsw-alias-border-l1)}",
         ".smpv-title{margin:0;font-size:13px;line-height:18px;font-weight:600;letter-spacing:.01em;color:var(--dsw-alias-label-primary)}",
+        ".smpv-headLine{display:flex;align-items:baseline;gap:10px;min-width:0}",
+        ".smpv-updated{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}",
         ".smpv-actions{display:flex;align-items:center;gap:10px;margin-left:auto}",
 
         // ===== 分段控件 =====
@@ -814,12 +820,12 @@
         ".smpv-card{padding:12px 16px;min-width:0;position:relative}",
         // 竖分隔线：用伪元素画，不影响 grid 列宽。
         ".smpv-card+.smpv-card:before{content:'';position:absolute;left:0;top:12px;bottom:12px;border-left:.5px solid var(--dsw-alias-border-l2)}",
-        ".smpv-cardK{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;font-weight:500;letter-spacing:.04em;margin-bottom:5px}",
+        ".smpv-cardK{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px;font-weight:500;letter-spacing:.03em;margin-bottom:5px}",
         // 主数字 22px：仪表盘的重点必须一眼看到，15px 撑不起来。
         ".smpv-cardV{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:22px;line-height:26px;font-weight:600;letter-spacing:-.01em;color:var(--dsw-alias-label-primary)}",
         // 副文本把细项并进同一格，避免拆成一堆等权重的小卡。
         // 副文本固定两行高：Token 格四项、异常格两项，高度不一致会让指标条底部参差。
-        ".smpv-cardSub{margin-top:4px;min-height:28px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px}",
+        ".smpv-cardSub{margin-top:4px;min-height:30px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}",
         // 两列微网格：四项排成 2×2，比一行塞四项换行更整齐。
         ".smpv-buckets{display:grid;grid-template-columns:auto auto;gap:0 10px;justify-content:start}",
         ".smpv-buckets>span{white-space:nowrap;font-variant-numeric:tabular-nums}",
@@ -829,8 +835,11 @@
         ".smpv-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;margin-bottom:20px}",
         ".smpv-panel{min-width:0;animation:smpv-fade .18s ease-out}",
         // 眉题：小、淡、带字距——典型的仪表盘分区标题。
-        ".smpv-panelTitle{font-size:10px;line-height:14px;font-weight:600;letter-spacing:.06em;color:var(--dsw-alias-label-tertiary);margin:0 0 10px;display:flex;align-items:center;gap:8px}",
-        ".smpv-modeTag{font-weight:500;font-size:9px;line-height:14px;letter-spacing:0;padding:0 6px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--smpv-tint-2)}",
+        ".smpv-panelHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}",
+        ".smpv-panelHead .smpv-panelTitle{margin:0}",
+        ".smpv-attribution{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
+        ".smpv-panelTitle{font-size:11px;line-height:15px;font-weight:600;letter-spacing:.05em;color:var(--dsw-alias-label-secondary);margin:0 0 10px;display:flex;align-items:center;gap:8px}",
+        ".smpv-modeTag{font-weight:500;font-size:11px;line-height:15px;letter-spacing:0;padding:0 6px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--smpv-tint-2)}",
 
         // ===== 路由分布 =====
         ".smpv-stack{margin:0 0 10px}",
@@ -848,7 +857,7 @@
         ".smpv-routeNums b{color:var(--dsw-alias-label-primary);font-weight:600}",
         ".smpv-route.fallback .smpv-routeLabel b{font-weight:500;color:var(--dsw-alias-label-secondary)}",
         // 回退标签：小字 pill，和眉题同族。
-        ".smpv-fbTag{font-size:9px;line-height:14px;padding:0 5px;border-radius:999px;color:var(--dsw-alias-label-tertiary);background:var(--smpv-tint-2);flex:none}",
+        ".smpv-fbTag{font-size:11px;line-height:15px;padding:0 5px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--smpv-tint-2);flex:none}",
 
         // ===== 池占用 =====
         ".smpv-slotRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:5px 0}",
@@ -860,9 +869,9 @@
         ".smpv-slot.hot{background:var(--dsw-alias-state-warning-primary,#c77d0a)}",
         ".smpv-slot.down{background:var(--dsw-alias-state-error-primary,#d5393a)}",
         // 状态：小圆点 + 文字，比纯色文字更克制。
-        ".smpv-state{display:inline-flex;align-items:center;gap:5px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}",
+        ".smpv-state{display:inline-flex;align-items:center;gap:5px;font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
         ".smpv-state:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}",
-        ".smpv-state.ok{color:var(--dsw-alias-state-success-primary,#1a8a4a)}",
+        ".smpv-state.ok{color:var(--smpv-ok)}",
         ".smpv-state.hot{color:var(--dsw-alias-state-warning-primary,#c77d0a)}",
         ".smpv-state.down{color:var(--dsw-alias-state-error-primary,#d5393a)}",
         ".smpv-slotNum{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
@@ -872,7 +881,7 @@
         ".smpv-sessions{display:flex;flex-direction:column;flex:1 1 auto;min-height:180px}",
         ".smpv-tableWrap{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}",
         ".smpv-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}",
-        ".smpv-table thead th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-tertiary);font-weight:500;font-size:10px;line-height:14px;letter-spacing:.04em;text-align:left;padding:0 10px 6px;border-bottom:.5px solid var(--dsw-alias-border-l1);white-space:nowrap}",
+        ".smpv-table thead th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-secondary);font-weight:500;font-size:11px;line-height:15px;letter-spacing:.03em;text-align:left;padding:0 10px 6px;border-bottom:.5px solid var(--dsw-alias-border-l1);white-space:nowrap}",
         ".smpv-table thead th.smpv-num{text-align:right}",
         ".smpv-table tbody td{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:7px 10px;font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}",
         ".smpv-table tbody tr:last-child td{border-bottom:0}",
@@ -884,11 +893,11 @@
         // 这样不占列宽——8 列已经很挤了。
         ".smpv-run{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%}",
         ".smpv-run:before{content:'';width:5px;height:5px;border-radius:50%;flex:none;box-sizing:border-box}",
-        ".smpv-run.running:before{background:var(--dsw-alias-state-success-primary,#1a8a4a);box-shadow:0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 22%, transparent)}",
+        ".smpv-run.running:before{background:var(--smpv-ok);box-shadow:0 0 0 2px color-mix(in srgb, var(--smpv-ok) 22%, transparent)}",
         ".smpv-run.done:before{border:.5px solid var(--dsw-alias-border-l2);background:transparent}",
         "@media (prefers-reduced-motion:no-preference){.smpv-run.running:before{animation:smpv-halo 2.4s ease-in-out infinite}}",
-        "@keyframes smpv-halo{0%,100%{box-shadow:0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 22%, transparent)}50%{box-shadow:0 0 0 3.5px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 10%, transparent)}}",
-        ".smpv-sessionSub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary)}",
+        "@keyframes smpv-halo{0%,100%{box-shadow:0 0 0 2px color-mix(in srgb, var(--smpv-ok) 22%, transparent)}50%{box-shadow:0 0 0 3.5px color-mix(in srgb, var(--smpv-ok) 10%, transparent)}}",
+        ".smpv-sessionSub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary)}",
         ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
         // 请求数是这行最有信息量的数字，给它主字色。
         ".smpv-numLead{color:var(--dsw-alias-label-primary);font-weight:500}",
@@ -921,8 +930,8 @@
         ".smpv-table tbody tr{border-bottom:.5px solid var(--dsw-alias-border-l1);padding:9px 0}",
         ".smpv-table tbody tr:last-child{border-bottom:0}",
         ".smpv-table tbody td{border:0;padding:0;display:flex;align-items:baseline;justify-content:space-between;gap:10px}",
-        ".smpv-table tbody td::before{content:attr(data-label);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;flex:none}",
-        ".smpv-table tbody td:first-child{font-weight:600;padding-bottom:5px;font-size:12px}",
+        ".smpv-table tbody td::before{content:attr(data-label);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;flex:none}",
+        ".smpv-table tbody td:first-child{font-weight:600;padding-bottom:5px;font-size:12px;flex-direction:column;align-items:flex-start;gap:1px}",
         ".smpv-table tbody td:first-child::before{content:none}",
         ".smpv-table tbody td:first-child .smpv-sessionTitle{white-space:normal;overflow-wrap:anywhere}",
         // 数值字段两列排布。
@@ -1052,6 +1061,24 @@
        * 账本只记子代理会话（主代理走自己的路由，不归池管），所以这里
        * 全是子代理，没有父子层级可分——平铺即可。
        */
+      /**
+       * 明细里没覆盖到的请求数。
+       *
+       * 账本上限 200 条会话，淘汰后的会话不再出现在明细里，但 `totals` 是
+       * 进程内累计、只增不减——两者必然对不上。把这个差值显式说出来，
+       * 读者才不会以为表格漏了行。
+       * @param {object} totals - 快照里的累计值。
+       * @param {Array<object>} sessions - 快照里的会话明细。
+       * @returns {number} 未归属的请求数（不为负）。
+       */
+      function unattributedRequests(totals, sessions) {
+        var total = (totals === null || totals === undefined ? 0 : totals.requests) || 0;
+        var listed = (sessions === null || sessions === undefined ? [] : sessions).reduce(function (sum, s) {
+          return sum + ((s === null || s === undefined ? 0 : s.requests) || 0);
+        }, 0);
+        return Math.max(0, total - listed);
+      }
+
       function groupSessions(sessions) {
         // 按发起会话聚合排序：同一主会话派出的子代理排在一起，
         // 扫一眼就知道哪个主会话最费、派了多少。
@@ -1274,13 +1301,30 @@
         return jsx("div", {
           className: "smpv-panel smpv-sessions",
           children: [
-            jsx("h3", { className: "smpv-panelTitle", children: "子代理会话" }),
+            jsx("div", {
+              className: "smpv-panelHead",
+              children: [
+                jsx("h3", { className: "smpv-panelTitle", children: "子代理会话" }),
+                // 明细只有最近 200 条会话，但 totals 是进程内累计——两者必然
+                // 对不上。不说明的话读者会以为表格漏了数据。
+                props.unattributed > 0
+                  ? jsx("span", {
+                    className: "smpv-attribution",
+                    title: "累计值包含已被淘汰的会话（账本上限 200 条），表格只列还留着的",
+                    children: "其中 " + props.unattributed + " 次请求来自已淘汰的会话"
+                  })
+                  : null
+              ]
+            }),
             rows.length === 0
               ? jsx("div", { className: "smpv-empty", children: "还没有观测到模型请求。" })
               : jsx("div", {
                 className: "smpv-tableWrap",
                 children: jsx("table", {
                   className: "smpv-table",
+                  // 移动端用 display:block 把表格改成卡片列表，Safari/VoiceOver
+                  // 和 Firefox 会因此丢掉隐式 table 角色；显式声明保住语义。
+                  role: "table",
                   children: [
                   jsx("thead", {
                     children: jsx("tr", {
@@ -1394,7 +1438,22 @@
             jsx("div", {
               className: "smpv-head",
               children: [
-                jsx("h1", { className: "smpv-title", children: "子代理模型池 · 统计" }),
+                jsx("div", {
+                  className: "smpv-headLine",
+                  children: [
+                    jsx("h1", { className: "smpv-title", children: "子代理模型池 · 统计" }),
+                    // 时间锚点：账本是进程序内存累计，不标时间就分不清
+                    // 「刚拉的」和「十分钟前的」。
+                    jsx("span", {
+                      className: "smpv-updated",
+                      children: state.updatedAt === null || state.updatedAt === undefined
+                        ? "尚未取到数据"
+                        : "更新于 " + new Date(state.updatedAt).toLocaleTimeString("zh-CN", {
+                          hour: "2-digit", minute: "2-digit", hour12: false,
+                        })
+                    })
+                  ]
+                }),
                 jsx("div", {
                   className: "smpv-actions",
                   children: [
@@ -1489,7 +1548,12 @@
                     jsx(SlotPanel, { routes: snapshot === null ? [] : snapshot.routes })
                   ]
                 }),
-                jsx(SessionTable, { sessions: snapshot === null ? [] : snapshot.sessions })
+                jsx(SessionTable, {
+                  sessions: snapshot === null ? [] : snapshot.sessions,
+                  // 明细请求数之和 vs 累计请求数：差值就是被 200 条上限
+                  // 淘汰掉的会话贡献的。
+                  unattributed: snapshot === null ? 0 : unattributedRequests(snapshot.totals, snapshot.sessions)
+                })
               ]
             })
           ]
@@ -1512,6 +1576,9 @@
         var controller = null;
         // 数据版本号：每次新快照到达递增。渲染层用它当 key，让整块淡入。
         var version = 0;
+        // 最后一次拿到数据的时间。页面必须写明数据有多旧——累计值是进程序
+        // 内存，不标时间的话看到的分不清是刚拉的还是十分钟前的。
+        var updatedAt = null;
         var notify = function () {
           listeners.forEach(function (listener) { listener(); });
         };
@@ -1528,6 +1595,7 @@
               error = "读取统计失败：宿主接口不可用。";
             } else {
               snapshot = value;
+              updatedAt = Date.now();
               version += 1;
             }
             notify();
@@ -1535,7 +1603,10 @@
         };
         return {
           getSnapshot: function () {
-            return { snapshot: snapshot, error: error, loading: loading, version: version };
+            return {
+              snapshot: snapshot, error: error, loading: loading,
+              version: version, updatedAt: updatedAt
+            };
           },
           subscribe: function (listener) {
             listeners.push(listener);
@@ -1570,12 +1641,19 @@
           useEffect(function () {
             source.load();
           }, []);
+          // 30 秒自动刷新：这个页面是盯「现在谁在跑」，不是看历史报表。
+          // 面板卸载时清掉，不在后台空转。
+          useEffect(function () {
+            var timer = setInterval(function () { source.load(); }, 30000);
+            return function () { clearInterval(timer); };
+          }, []);
           var modeState = useState("tokens");
           return {
             snapshot: state[0].snapshot,
             error: state[0].error,
             loading: state[0].loading,
             version: state[0].version,
+            updatedAt: state[0].updatedAt,
             mode: modeState[0],
             setMode: modeState[1],
             reload: function () { source.load(); }
@@ -1632,6 +1710,7 @@
         poolKey: poolKey,
         measureOf: measureOf,
         rankRoutes: rankRoutes,
+        unattributedRequests: unattributedRequests,
         slotStates: slotStates,
         routeHealth: routeHealth,
         formatCount: formatCount,

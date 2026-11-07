@@ -162,6 +162,26 @@ test("同发起会话的子代理排在一起", () => {
   assert.deepEqual(rows.map((r) => r.session.sessionId), ["b", "d", "a", "c"]);
 });
 
+test("未归属请求数 = 累计 - 明细之和", () => {
+  const { unattributedRequests } = loadTestExports();
+  const totals = { requests: 149 };
+  const sessions = [{ requests: 38 }, { requests: 27 }, { requests: 19 }, { requests: 12 }, { requests: 8 }];
+  // 149 - 104 = 45：被 200 条上限淘汰的会话贡献的
+  assert.equal(unattributedRequests(totals, sessions), 45);
+});
+
+test("明细超过累计时未归属钳到 0", () => {
+  const { unattributedRequests } = loadTestExports();
+  assert.equal(unattributedRequests({ requests: 10 }, [{ requests: 12 }]), 0);
+});
+
+test("空明细/空累计都不炸", () => {
+  const { unattributedRequests } = loadTestExports();
+  assert.equal(unattributedRequests({ requests: 0 }, []), 0);
+  assert.equal(unattributedRequests(null, null), 0);
+  assert.equal(unattributedRequests({ requests: 5 }, undefined), 5);
+});
+
 test("空列表返回空数组", () => {
   const { groupSessions } = loadTestExports();
   assert.deepEqual(groupSessions([]), []);
