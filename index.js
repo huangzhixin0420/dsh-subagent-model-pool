@@ -147,6 +147,15 @@ function routeLabel(route) {
   return `${route.provider}/${route.model}`;
 }
 
+/**
+ * 跨 HMR 重载的全局键。
+ *
+ * 用 `Symbol.for`（全局注册表）而不是模块内 Symbol：重载后的新模块要能拿到
+ * 旧模块写进去的同一份状态。
+ */
+const STATS_KEY = Symbol.for("dsh-subagent-model-pool.stats");
+const POOL_KEY = Symbol.for("dsh-subagent-model-pool.pool");
+
 export function apply(ctx, config) {
   const initial = readConfig(config);
   ctx.logger?.info?.(
@@ -157,7 +166,24 @@ export function apply(ctx, config) {
   let pool = buildPool(initial);
 
   // 使用统计账本：独立于池实例，跨配置热更新存活（池一换，历史就丢了）。
-  const stats = new PoolStats();
+  //
+  // 挂 globalThis 而不是模块变量：HMR 热重载会**重新执行整个模块**，模块级
+  // 变量也是新的，账本照样清零（实测：改一次代码统计页的会话明细全没了）。
+  // 用 Symbol.for 做键，重载后拿到的还是同一份。真进程重启时 globalThis 重建，
+  // 自然归零——这正是「进程内累计」该有的语义。
+  const stats = (globalThis[STATS_KEY] ??= new PoolStats());
+  // 同理，池也要继承上一份的占用：重载时正在跑的子代理如果不迁过来，
+  // 新池 active 全 0（并发上限失效），而且它们的 release 会打空导致泄漏。
+  if (pool !== undefined) {
+    const previousPool = globalThis[POOL_KEY];
+    if (previousPool instanceof ModelPool) {
+      const inherited = pool.inherit(previousPool);
+      if (inherited > 0) {
+        ctx.logger?.info?.(`subagent-model-pool: 热重载继承 ${inherited} 个占用`);
+      }
+    }
+    globalThis[POOL_KEY] = pool;
+  }
 
   // 会话标题读取器：`sessionTitle` 服务可用时用它读会话日志里折叠出的
   // 最新标题；不可用时为 undefined，统计页退化成只显示会话 id。
@@ -198,6 +224,7 @@ export function apply(ctx, config) {
       // 在跑，并发上限也会失效（能再派满额），且子代理结束时 release 打空，
       // 占用永久泄漏。
       const migrated = previous === undefined ? 0 : pool.inherit(previous);
+      globalThis[POOL_KEY] = pool;
       poolGeneration += 1;
       migratedOccupancy += migrated;
       ctx.logger?.info?.(

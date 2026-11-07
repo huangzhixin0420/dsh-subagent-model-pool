@@ -8,6 +8,7 @@
 //   usage 藏在内嵌 stream 的最后一个 usage chunk 里；
 // - `llm/retry-started` 作废替换槽。
 import test from "node:test";
+
 import assert from "node:assert/strict";
 import { apply } from "../index.js";
 
@@ -63,6 +64,13 @@ async function readSnapshot(routes) {
 }
 
 // ---- 路由注册 ----
+
+// 账本与池挂在 globalThis 上（为了跨 HMR 重载存活），所以测试之间必须清掉，
+// 否则上一个用例的累计值会漏到下一个。等价于清 localStorage / 清 DOM。
+test.beforeEach(() => {
+  delete globalThis[Symbol.for("dsh-subagent-model-pool.stats")];
+  delete globalThis[Symbol.for("dsh-subagent-model-pool.pool")];
+});
 
 test("注册取数路由，路径在 /api 下", () => {
   const { ctx, routes } = stubCtx();

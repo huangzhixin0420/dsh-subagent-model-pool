@@ -745,7 +745,7 @@
 
       /** 路由配色：t0 蓝 / t1 绿 / t2 橙 / t3 紫（与 DSH 内置统计表同族）。 */
       var TONE_COLORS = {
-        t0: "var(--dsw-alias-accent,#2f6bff)",
+        t0: "var(--smpv-accent)",
         t1: "var(--smpv-ok)",
         t2: "var(--dsw-alias-state-warning-primary,#c77d0a)",
         t3: "#8a63d2",
@@ -764,11 +764,22 @@
                 // 三级色阶：用 label-primary 按比例混透明，两个主题自动成立
         // （label-primary 在浅色主题是近黑、深色主题是近白，混出来分别是叠深与叠亮）。
         // interactive-bg-hover 只有 6% 强度，叠在近白的页面底上只差 7/255，等于没画。
-        ".smpv-page{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding:18px 24px 24px;--smpv-tint-1:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);--smpv-tint-2:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);--smpv-tint-3:color-mix(in srgb,var(--dsw-alias-label-primary) 13%,transparent);--smpv-ok:#0b7a3b}",
+        ".smpv-page{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;padding:18px 24px 24px;--smpv-tint-1:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,transparent);--smpv-tint-2:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);--smpv-tint-3:color-mix(in srgb,var(--dsw-alias-label-primary) 13%,transparent);--smpv-ok:#0b7a3b;--smpv-accent:var(--dsw-alias-accent,#2f6bff);--smpv-mono:var(--dsw-font-mono,ui-monospace,Menlo,monospace)}",
+        // --dsw-alias-accent 与 --dsw-font-mono 在 DSH 0.2.2-rc.1 里**未定义**
+        // （实测取值为空串），所有 var(..., fallback) 一直在吃硬编码兜底。
+        // 收成 --smpv-accent / --smpv-mono 集中定义：将来 DSH 补上这两个别名，
+        // 这里自动跟着走，不用满文件改。
         // 成功色：DSH 的 --dsw-alias-state-success-primary 在**两套主题里都是**
         // #22c55e，浅色白底只有 2.28:1——AA 要求 4.5，连非文本 3 都不到。
         // 改用主题标记分两套：浅色压深到 5.44:1，深色沿用 DSH 原值（8.00:1）。
         "body[data-ds-dark-theme] .smpv-page{--smpv-ok:#22c55e}",
+        // color-mix 要 Chrome 111+ / Safari 16.2+ / Firefox 113+。不支持时自定义
+        // 属性非法 → 全部退化成 transparent：切换器选中态、进度条轨道、胶囊底、
+        // 槽位方块会一起消失。用固定 rgba 兜底，代价是不再跟随主题的精确明度。
+        "@supports not (color:color-mix(in srgb,red,blue)){",
+        ".smpv-page{--smpv-tint-1:rgba(0,0,0,.05);--smpv-tint-2:rgba(0,0,0,.09);--smpv-tint-3:rgba(0,0,0,.14)}",
+        "body[data-ds-dark-theme] .smpv-page{--smpv-tint-1:rgba(255,255,255,.06);--smpv-tint-2:rgba(255,255,255,.10);--smpv-tint-3:rgba(255,255,255,.16)}",
+        "}",
         // 标题区：标题压在左、控件压在右，底部一条极淡分隔线收口。
         ".smpv-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:.5px solid var(--dsw-alias-border-l1)}",
         ".smpv-title{margin:0;font-size:13px;line-height:18px;font-weight:600;letter-spacing:.01em;color:var(--dsw-alias-label-primary)}",
@@ -787,14 +798,14 @@
         // 选中态：DSH 侧栏选中项的语言——淡底 + 主字色。不用反色（浅色主题下会变纯黑块，
         // 在一堆白卡片里视觉重量过重），也不用品牌实心（过于抢眼，和进度条抢注意力）。
         ".smpv-switchBtn.on{background:var(--smpv-tint-3);color:var(--dsw-alias-label-primary);font-weight:500}",
-        ".smpv-switchBtn:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
+        ".smpv-switchBtn:focus-visible{outline:1px solid var(--smpv-accent);outline-offset:1px}",
 
         // ===== 刷新按钮 =====
         ".smpv-refresh{display:inline-flex;align-items:center;border:.5px solid var(--dsw-alias-border-l2);border-radius:999px;background:0;color:var(--dsw-alias-label-secondary);font-family:inherit;font-size:11px;line-height:16px;font-weight:500;padding:5px 12px;cursor:pointer;transition:background-color .16s ease,color .16s ease,border-color .16s ease}",
         ".smpv-refresh:hover{background:var(--smpv-tint-2);color:var(--dsw-alias-label-primary)}",
         ".smpv-refresh:active{transform:translateY(.5px)}",
         ".smpv-refresh[aria-busy=true]{cursor:progress}",
-        ".smpv-refresh:focus-visible{outline:1px solid var(--dsw-alias-accent,#2f6bff);outline-offset:1px}",
+        ".smpv-refresh:focus-visible{outline:1px solid var(--smpv-accent);outline-offset:1px}",
         // spinner 放在零宽槽位里绝对定位——参与布局会把按钮撑宽 18px。
         ".smpv-refreshSlot{position:relative;width:0;height:12px;flex:none}",
         // 外层淡入淡出、内层旋转：两层分开，transform 不互相打架。
@@ -802,7 +813,7 @@
         ".smpv-spinWrap[data-on=true]{opacity:1;transform:scale(1)}",
         // 匀速 1 秒一圈：线性是唯一没有顿挫感的旋转曲线。
         ".smpv-spinWrap[data-on=false] .smpv-spin{animation:none}",
-        ".smpv-spin{display:block;width:12px;height:12px;border-radius:50%;border:1.5px solid transparent;border-top-color:var(--dsw-alias-accent,#2f6bff);border-right-color:var(--dsw-alias-accent,#2f6bff);animation:smpv-spin 1s linear infinite}",
+        ".smpv-spin{display:block;width:12px;height:12px;border-radius:50%;border:1.5px solid transparent;border-top-color:var(--smpv-accent);border-right-color:var(--smpv-accent);animation:smpv-spin 1s linear infinite}",
         "@keyframes smpv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}",
         "@media (prefers-reduced-motion:reduce){.smpv-spin{animation:smpv-halo 2.4s ease-in-out infinite;border-right-color:transparent}}",
         "@keyframes smpv-pulse{0%,100%{opacity:.35}50%{opacity:1}}",
@@ -822,7 +833,7 @@
         ".smpv-card+.smpv-card:before{content:'';position:absolute;left:0;top:12px;bottom:12px;border-left:.5px solid var(--dsw-alias-border-l2)}",
         ".smpv-cardK{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px;font-weight:500;letter-spacing:.03em;margin-bottom:5px}",
         // 主数字 22px：仪表盘的重点必须一眼看到，15px 撑不起来。
-        ".smpv-cardV{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:22px;line-height:26px;font-weight:600;letter-spacing:-.01em;color:var(--dsw-alias-label-primary)}",
+        ".smpv-cardV{font-family:var(--smpv-mono);font-variant-numeric:tabular-nums;font-size:22px;line-height:26px;font-weight:600;letter-spacing:-.01em;color:var(--dsw-alias-label-primary)}",
         // 副文本把细项并进同一格，避免拆成一堆等权重的小卡。
         // 副文本固定两行高：Token 格四项、异常格两项，高度不一致会让指标条底部参差。
         ".smpv-cardSub{margin-top:4px;min-height:30px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}",
@@ -852,9 +863,9 @@
         ".smpv-route{display:grid;grid-template-columns:8px minmax(0,1fr) auto auto;gap:9px;align-items:center;padding:4px 0}",
         ".smpv-dot{width:8px;height:8px;border-radius:2px;display:inline-block;flex:none}",
         ".smpv-routeLabel{font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}",
-        ".smpv-routeLabel b{font-weight:600;font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace)}",
+        ".smpv-routeLabel b{font-weight:600;font-family:var(--smpv-mono)}",
         ".smpv-routeLabel span{color:var(--dsw-alias-label-tertiary)}",
-        ".smpv-routeNums{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);text-align:right;white-space:nowrap}",
+        ".smpv-routeNums{font-family:var(--smpv-mono);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);text-align:right;white-space:nowrap}",
         ".smpv-routeNums b{color:var(--dsw-alias-label-primary);font-weight:600}",
         ".smpv-route.fallback .smpv-routeLabel b{font-weight:500;color:var(--dsw-alias-label-secondary)}",
         // 回退标签：小字 pill，和眉题同族。
@@ -866,7 +877,7 @@
         ".smpv-slot{width:14px;height:14px;border-radius:4px;background:var(--smpv-tint-2);border:.5px solid transparent}",
         // 空闲槽位靠描边表达「存在但空」——浅色主题下纯填充不可见。
         ".smpv-slot.idle{border-color:var(--dsw-alias-border-l2)}",
-        ".smpv-slot.busy{background:var(--dsw-alias-accent,#2f6bff)}",
+        ".smpv-slot.busy{background:var(--smpv-accent)}",
         ".smpv-slot.hot{background:var(--dsw-alias-state-warning-primary,#c77d0a)}",
         ".smpv-slot.down{background:var(--dsw-alias-state-error-primary,#d5393a)}",
         // 状态：小圆点 + 文字，比纯色文字更克制。
@@ -876,7 +887,7 @@
         ".smpv-state.busy{color:var(--dsw-alias-label-primary)}",
         ".smpv-state.hot{color:var(--dsw-alias-state-warning-primary,#c77d0a)}",
         ".smpv-state.down{color:var(--dsw-alias-state-error-primary,#d5393a)}",
-        ".smpv-slotNum{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
+        ".smpv-slotNum{font-family:var(--smpv-mono);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
 
         // ===== 会话明细 =====
         // 撑满剩余高度、表头吸顶——否则宽屏下页面下半截全是空白。
@@ -899,7 +910,7 @@
         ".smpv-run.done:before{border:.5px solid var(--dsw-alias-border-l2);background:transparent}",
         "@media (prefers-reduced-motion:no-preference){.smpv-run.running:before{animation:smpv-halo 2.4s ease-in-out infinite}}",
         "@keyframes smpv-halo{0%,100%{box-shadow:0 0 0 2px color-mix(in srgb, var(--smpv-ok) 22%, transparent)}50%{box-shadow:0 0 0 3.5px color-mix(in srgb, var(--smpv-ok) 10%, transparent)}}",
-        ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
+        ".smpv-num{font-family:var(--smpv-mono);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
         // 请求数是这行最有信息量的数字，给它主字色。
         ".smpv-numLead{color:var(--dsw-alias-label-primary);font-weight:500}",
         ".smpv-table .smpv-routeLabel{font-size:11px;color:var(--dsw-alias-label-secondary)}",
@@ -907,8 +918,8 @@
         ".smpv-empty{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;padding:16px 0}",
         ".smpv-err{color:var(--dsw-alias-state-error-primary,#d5393a);font-size:11px;line-height:16px;padding:10px 0}",
 
-        // ===== 移动端 H5（沿用 DSH 的 width<=767px / width<=480px / pointer:coarse 断点）=====
-        "@media (width<=767px){",
+        // ===== 移动端 H5（767 / 480 断点 + pointer:coarse 触摸设备）=====
+        "@media (max-width:767px){", // 用 max-width 而非范围语法：后者 Safari 16.4 以下不支持，整段规则会被丢弃
         // 底部留足安全区内边距：最后一屏内容不能被视口底边或 iPhone 横条盖住。
         ".smpv-page{padding:14px 14px max(24px,calc(env(safe-area-inset-bottom,0px) + 16px))}",
         ".smpv-head{flex-direction:column;align-items:stretch;gap:10px;padding-bottom:12px}",
@@ -941,15 +952,17 @@
         ".smpv-table tbody td.smpv-num{flex-direction:row;align-items:baseline;justify-content:space-between;gap:6px}",
         ".smpv-table tbody td.smpv-num::before{order:0}",
         "}",
-        "@media (width<=480px){",
+        "@media (max-width:480px){",
         ".smpv-cardV{font-size:17px;line-height:22px}",
         ".smpv-cardSub{font-size:9px;line-height:13px}",
         ".smpv-refresh{padding:5px 10px}",
         "}",
-        // 触摸设备：可点区域放大到 32px 以上。
+        // 触摸设备：点击目标 44px。WCAG 2.2 的 24×24 早满足了，44 是人体工学
+        // 建议值——32px 时手指按偏的概率明显变高。用 min-height 撑热区，
+        // 不靠加大 padding 撑视觉高度，文字位置不变。
         "@media (pointer:coarse){",
-        ".smpv-switchBtn{padding:8px 12px;min-height:32px}",
-        ".smpv-refresh{min-height:32px;padding:7px 12px}",
+        ".smpv-switchBtn{min-height:44px;padding:5px 14px}",
+        ".smpv-refresh{min-height:44px;padding:5px 14px}",
         "}"
       ].join("");
       if (typeof document !== "undefined" && typeof document.querySelector === "function"

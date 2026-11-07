@@ -10,6 +10,7 @@
 // index.js 在换池时真的调了它。之前把 inherit 命名成 adopt 时，正是池上已
 // 有同名方法导致它被静默覆盖——单元测试全绿，接线是断的。
 import test from "node:test";
+
 import assert from "node:assert/strict";
 import { apply } from "../index.js";
 
@@ -117,6 +118,13 @@ function volatileConfig(initial) {
 }
 
 const POOLS = [{ provider: "c2a", model: "a", maxConcurrent: 2 }];
+
+// 账本与池挂在 globalThis 上（为了跨 HMR 重载存活），所以测试之间必须清掉，
+// 否则上一个用例的累计值会漏到下一个。等价于清 localStorage / 清 DOM。
+test.beforeEach(() => {
+  delete globalThis[Symbol.for("dsh-subagent-model-pool.stats")];
+  delete globalThis[Symbol.for("dsh-subagent-model-pool.pool")];
+});
 
 test("改配置后池占用不丢（真实 apply 链路）", async () => {
   const config = volatileConfig({ enabled: true, strategy: "strict-priority", pools: [...POOLS] });

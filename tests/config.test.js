@@ -16,6 +16,13 @@ function validate(input) {
   return Config["~standard"].validate(input);
 }
 
+// 账本与池挂在 globalThis 上（为了跨 HMR 重载存活），测试之间必须清掉，
+// 否则上一个用例的探测拉黑名单/累计值会漏到下一个。
+test.beforeEach(() => {
+  delete globalThis[Symbol.for("dsh-subagent-model-pool.stats")];
+  delete globalThis[Symbol.for("dsh-subagent-model-pool.pool")];
+});
+
 test("Config 带顶层 volatile，否则设置页不可见", () => {
   assert.equal(Config.meta.volatile, true);
 });
