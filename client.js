@@ -837,6 +837,7 @@
         // 眉题：小、淡、带字距——典型的仪表盘分区标题。
         ".smpv-panelHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}",
         ".smpv-panelHead .smpv-panelTitle{margin:0}",
+        ".smpv-sortNote{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
         ".smpv-attribution{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary);white-space:nowrap}",
         ".smpv-panelTitle{font-size:11px;line-height:15px;font-weight:600;letter-spacing:.05em;color:var(--dsw-alias-label-secondary);margin:0 0 10px;display:flex;align-items:center;gap:8px}",
         ".smpv-modeTag{font-weight:500;font-size:11px;line-height:15px;letter-spacing:0;padding:0 6px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--smpv-tint-2)}",
@@ -860,7 +861,6 @@
         ".smpv-fbTag{font-size:11px;line-height:15px;padding:0 5px;border-radius:999px;color:var(--dsw-alias-label-secondary);background:var(--smpv-tint-2);flex:none}",
 
         // ===== 池占用 =====
-        ".smpv-rank{flex:none;width:14px;text-align:center;font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);font-size:11px;line-height:15px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary)}",
         ".smpv-slotRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:5px 0}",
         ".smpv-slots{display:flex;gap:3px;align-items:center;flex-wrap:wrap}",
         ".smpv-slot{width:14px;height:14px;border-radius:4px;background:var(--smpv-tint-2);border:.5px solid transparent}",
@@ -1302,7 +1302,18 @@
         return jsx("div", {
           className: "smpv-panel",
           children: [
-            jsx("h3", { className: "smpv-panelTitle", children: "池占用" }),
+            jsx("div", {
+              className: "smpv-panelHead",
+              children: [
+                jsx("h3", { className: "smpv-panelTitle", children: "池占用" }),
+                // 行序就是派发顺序（strict-priority 按 weight 降序取第一个），
+                // 说一次即可，不必每行塞一个看不懂的序号。
+                jsx("span", {
+                  className: "smpv-sortNote",
+                  children: "按派发优先级"
+                })
+              ]
+            }),
             routes.length === 0
               ? jsx("div", { className: "smpv-empty", children: "模型池为空，先在设置里添加候选。" })
               : routes.map(function (route, index) {
@@ -1311,13 +1322,12 @@
                 return jsx("div", {
                   key: route.provider + "/" + route.model,
                   className: "smpv-slotRow",
+                  // weight 不占列宽（8 列已经很挤），放 hover：它是配置里的值，
+                  // 需要核对时再看，不需要常驻。
+                  title: route.model + " · " + route.provider
+                    + "　派发优先级 weight " + (route.weight ?? 1)
+                    + "　并发 " + (route.active || 0) + "/" + (route.maxConcurrent || 0),
                   children: [
-                    // 优先级序号：1 就是「只要它没满，只会派给它」。
-                    jsx("span", {
-                      className: "smpv-rank",
-                      title: "派发优先级（weight " + (route.weight ?? 1) + "，数字越小越先派）",
-                      children: String(index + 1)
-                    }),
                     jsx(RouteLabel, { route: route }),
                     jsx("span", {
                       className: "smpv-slots",
