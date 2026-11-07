@@ -795,9 +795,10 @@
         ".smpv-spinWrap{position:absolute;left:5px;top:0;width:12px;height:12px;opacity:0;transform:scale(.7);transition:opacity .2s ease-out,transform .2s cubic-bezier(.2,.8,.3,1)}",
         ".smpv-spinWrap[data-on=true]{opacity:1;transform:scale(1)}",
         // 匀速 1 秒一圈：线性是唯一没有顿挫感的旋转曲线。
+        ".smpv-spinWrap[data-on=false] .smpv-spin{animation:none}",
         ".smpv-spin{display:block;width:12px;height:12px;border-radius:50%;border:1.5px solid transparent;border-top-color:var(--dsw-alias-accent,#2f6bff);border-right-color:var(--dsw-alias-accent,#2f6bff);animation:smpv-spin 1s linear infinite}",
         "@keyframes smpv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}",
-        "@media (prefers-reduced-motion:reduce){.smpv-spin{animation:smpv-pulse 2.4s ease-in-out infinite;border-right-color:transparent}}",
+        "@media (prefers-reduced-motion:reduce){.smpv-spin{animation:smpv-halo 2.4s ease-in-out infinite;border-right-color:transparent}}",
         "@keyframes smpv-pulse{0%,100%{opacity:.35}50%{opacity:1}}",
         "@media (prefers-reduced-motion:reduce){.smpv-spinWrap{transition:none}}",
 
@@ -885,8 +886,8 @@
         ".smpv-run:before{content:'';width:5px;height:5px;border-radius:50%;flex:none;box-sizing:border-box}",
         ".smpv-run.running:before{background:var(--dsw-alias-state-success-primary,#1a8a4a);box-shadow:0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 22%, transparent)}",
         ".smpv-run.done:before{border:.5px solid var(--dsw-alias-border-l2);background:transparent}",
-        "@media (prefers-reduced-motion:no-preference){.smpv-run.running:before{animation:smpv-pulse 2.4s ease-in-out infinite}}",
-        "@keyframes smpv-pulse{0%,100%{box-shadow:0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 22%, transparent)}50%{box-shadow:0 0 0 3.5px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 10%, transparent)}}",
+        "@media (prefers-reduced-motion:no-preference){.smpv-run.running:before{animation:smpv-halo 2.4s ease-in-out infinite}}",
+        "@keyframes smpv-halo{0%,100%{box-shadow:0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 22%, transparent)}50%{box-shadow:0 0 0 3.5px color-mix(in srgb, var(--dsw-alias-state-success-primary,#1a8a4a) 10%, transparent)}}",
         ".smpv-sessionSub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary)}",
         ".smpv-num{font-family:var(--dsw-font-mono,ui-monospace,Menlo,monospace);text-align:right;font-size:11px;color:var(--dsw-alias-label-secondary);transition:opacity .14s ease-out}",
         // 请求数是这行最有信息量的数字，给它主字色。
