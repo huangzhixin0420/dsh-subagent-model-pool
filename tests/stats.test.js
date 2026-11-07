@@ -189,11 +189,14 @@ test("空 label 和空 childId 都不记", () => {
 test("subagent/end 之后状态是 done，之前是 running", () => {
   const stats = new PoolStats();
   const child = sessionOf("c1", { parentSession: "p1" });
-  stats.rememberRunStart("c1", 1000);
-  stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 10, outputTokens: 1 }, 1000);
+  // 用真实时间基准：snapshot() 内部取 Date.now()，写死的小数字会被
+  // 「进行中」的保鲜期判成过期。
+  const t0 = Date.now();
+  stats.rememberRunStart("c1", t0);
+  stats.recordSessionUsage(child, "c2a", "free", { turn: 1, step: 1 }, { inputTokens: 10, outputTokens: 1 }, t0);
   let row = stats.snapshot().sessions.find((s) => s.sessionId === "c1");
   assert.equal(row.state, "running");
-  stats.rememberRunEnd("c1", "completed", 2000);
+  stats.rememberRunEnd("c1", "completed", t0 + 1000);
   row = stats.snapshot().sessions.find((s) => s.sessionId === "c1");
   assert.equal(row.state, "done");
   assert.equal(row.stopReason, "completed");
@@ -334,4 +337,40 @@ test("会话明细超过上限时淘汰最久未更新的", () => {
   // 最旧的被淘汰，最新的还在。
   assert.equal(snap.sessions.some((s) => s.sessionId === "s0"), false);
   assert.equal(snap.sessions.some((s) => s.sessionId === `s${MAX_TRACKED_SESSIONS + 4}`), true);
+});
+
+// ---- 「进行中」的保鲜期 ----
+//
+// DSH 重启后会把已存在的子代理重新发布一次，subagent/start 于是再触发一次，
+// 状态记成 running；但那些 agent 没有真的 run 在跑，也不会再有 subagent/end。
+
+test("重启后重新发布的子代理不会永远显示进行中", () => {
+  const stats = new PoolStats();
+  const now = Date.now();
+  stats.rememberRunStart("child-1", now);
+  // 刚启动 1 秒内：确实是进行中
+  assert.equal(stats.stateOfSession("child-1", now, now + 1_000), "running");
+  // 超过保鲜期没有新记账：降级为已完成
+  assert.equal(
+    stats.stateOfSession("child-1", now, now + PoolStats.STALE_MS + 1),
+    "done",
+  );
+});
+
+test("有持续记账的进行中会话不受保鲜期影响", () => {
+  const stats = new PoolStats();
+  const now = Date.now();
+  stats.rememberRunStart("child-1", now);
+  const later = now + PoolStats.STALE_MS + 1;
+  // lastSeenAt 跟着新请求一起前进，就还是进行中
+  assert.equal(stats.stateOfSession("child-1", later, later + 1_000), "running");
+});
+
+test("明确的结束状态不被保鲜期覆盖", () => {
+  const stats = new PoolStats();
+  const now = Date.now();
+  stats.rememberRunStart("child-1", now);
+  stats.rememberRunEnd("child-1", "completed", now + 1_000);
+  assert.equal(stats.stateOfSession("child-1", now, now + 10 * PoolStats.STALE_MS), "done");
+  assert.equal(stats.stopReasonOfSession("child-1"), "completed");
 });
