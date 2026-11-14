@@ -781,7 +781,10 @@
         "body[data-ds-dark-theme] .smpv-page{--smpv-tint-1:rgba(255,255,255,.06);--smpv-tint-2:rgba(255,255,255,.10);--smpv-tint-3:rgba(255,255,255,.16)}",
         "}",
         // 标题区：标题压在左、控件压在右，底部一条极淡分隔线收口。
-        ".smpv-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:.5px solid var(--dsw-alias-border-l1)}",
+        // flex:none —— 它是 .smpv-page 的直接 flex 子项（主轴竖直），现在靠
+        // min-height:auto 隐式兜底压不动；写死更稳，将来往标题区塞定高/裁切
+        // 元素也不会把整行挤没。
+        ".smpv-head{display:flex;flex:none;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:.5px solid var(--dsw-alias-border-l1)}",
         ".smpv-title{margin:0;font-size:13px;line-height:18px;font-weight:600;letter-spacing:.01em;color:var(--dsw-alias-label-primary)}",
         ".smpv-headLine{display:flex;align-items:baseline;gap:10px;min-width:0}",
         ".smpv-updated{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}",
@@ -827,7 +830,14 @@
         // ===== 指标条 =====
         // 四组指标装进一个整体容器，格间用极淡竖线分隔。
         // 不用「八张等宽小卡片」——那样每个数字权重相同，看不出主次，是最典型的业余感来源。
-        ".smpv-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:1fr;margin:20px 0;border-radius:12px;border:.5px solid var(--dsw-alias-border-l2);overflow:hidden}",
+        // flex:none —— 指标条**永远不许被压缩**。
+        // 背景：.smpv-body 是 flex column，里面的三块（指标条 / 双栏 / 会话明细）
+        // 默认 flex-shrink:1。会话记录一多，明细表内容变高，flex 分配先把
+        // 指标条挤扁——实测 200 条会话时指标条从 104px 被压到 4px，
+        // 「509M」这个数字整体被裁在容器外（可见高度 -27px，等于看不见）。
+        // 会话明细才是唯一该伸缩的那块，所以给它显式 flex:1 1 0%，
+        // 其余全部 flex:none。
+        ".smpv-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:1fr;flex:none;margin:20px 0;border-radius:12px;border:.5px solid var(--dsw-alias-border-l2);overflow:hidden}",
         ".smpv-card{padding:12px 16px;min-width:0;position:relative}",
         // 竖分隔线：用伪元素画，不影响 grid 列宽。
         ".smpv-card+.smpv-card:before{content:'';position:absolute;left:0;top:12px;bottom:12px;border-left:.5px solid var(--dsw-alias-border-l2)}",
@@ -837,13 +847,18 @@
         // 副文本把细项并进同一格，避免拆成一堆等权重的小卡。
         // 副文本固定两行高：Token 格四项、异常格两项，高度不一致会让指标条底部参差。
         ".smpv-cardSub{margin-top:4px;min-height:30px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}",
+        // 空态（还没取到数据，四格都没有副文本）不留这 30px：桌面端靠
+        // grid-auto-rows:1fr 仍被拉齐、视觉零变化，手机上省掉一整行空白。
+        ".smpv-cardSub:empty{min-height:0}",
         // 两列微网格：四项排成 2×2，比一行塞四项换行更整齐。
         ".smpv-buckets{display:grid;grid-template-columns:auto auto;gap:0 10px;justify-content:start}",
         ".smpv-buckets>span{white-space:nowrap;font-variant-numeric:tabular-nums}",
 
         // ===== 区块 =====
         // 无边框、无底色，靠眉题 + 留白分区。加框会让每个区块都变成盒子，页面就碎了。
-        ".smpv-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;margin-bottom:20px}",
+        // flex:none —— 双栏区同样不许被压缩（路由分布的数字比会话表更重要，
+        // 不该被表格挤没）。理由同 .smpv-cards。
+        ".smpv-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;flex:none;margin-bottom:20px}",
         ".smpv-panel{min-width:0;animation:smpv-fade .18s ease-out}",
         // 眉题：小、淡、带字距——典型的仪表盘分区标题。
         ".smpv-panelHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}",
@@ -891,7 +906,11 @@
 
         // ===== 会话明细 =====
         // 撑满剩余高度、表头吸顶——否则宽屏下页面下半截全是空白。
-        ".smpv-sessions{display:flex;flex-direction:column;flex:1 1 auto;min-height:180px}",
+        // flex:1 1 0% —— 会话明细是唯一允许伸缩的块：记录变多时它自己滚，
+        // 上方的指标条与双栏区保持原尺寸（见 .smpv-cards 的说明）。
+        // flex-basis:0 而不是 auto —— auto 会把明细表的内容高度当成基准，
+        // 内容一多就把同级的指标条挤扁（就是这条 bug 的根）。
+        ".smpv-sessions{display:flex;flex-direction:column;flex:1 1 0%;min-height:180px}",
         ".smpv-tableWrap{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}",
         ".smpv-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}",
         ".smpv-table thead th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-secondary);font-weight:500;font-size:11px;line-height:15px;letter-spacing:.03em;text-align:left;padding:0 10px 6px;border-bottom:.5px solid var(--dsw-alias-border-l1);white-space:nowrap}",
@@ -934,7 +953,10 @@
         ".smpv-cardV{font-size:19px;line-height:24px}",
         ".smpv-grid{grid-template-columns:minmax(0,1fr);gap:20px;margin-bottom:16px}",
         // 手机不撑满：内容本来就长，撑满反而看不到底。
-        ".smpv-sessions{min-height:0}",
+        // flex:none 必须显式写 —— 基础规则是 flex:1 1 0%，在手机上会让会话区
+        // 高度算成「剩余空间」（0），而 .smpv-tableWrap 又是 overflow:visible，
+        // 200 条会话就溢出绘制到安全区上（实测 sessions 高 0、内容 33540px）。
+        ".smpv-sessions{flex:none;min-height:0}",
         ".smpv-tableWrap{overflow:visible}",
         // 表格转卡片列表。
         ".smpv-table,.smpv-table tbody,.smpv-table tbody tr,.smpv-table tbody td{display:block;width:auto}",
