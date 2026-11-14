@@ -70,6 +70,8 @@ v0.4.0 起带**统计视图**：侧栏「模型池统计」面板，一页看完
 
 页头有「更新于 HH:MM」时间锚点，并每 30 秒自动刷新（面板卸载时停表）。
 
+布局优先级（v0.4.2 起）：**上三块永远不被压缩，只有会话明细伸缩**。会话记录再多，指标条、路由分布、池占用都保持原尺寸，多出来的高度全部由明细表内部滚动消化。实测 200 条会话时指标条稳定 104px（修复前被压到 4px）。视口矮于约 560px 时页面本身会出现纵向滚动条，那是内容真的放不下，不是被挤压。
+
 口径说明：
 
 - **只算子代理**：主会话的 token 和请求不计入。这是子代理模型池的统计页，混入主代理会让「池分配效果」这个唯一目的失真。
@@ -195,6 +197,7 @@ launchctl kickstart -k gui/$(id -u)/com.leo.dsh-web
 - **统计页的 store 用普通 prop 下发**：`inject` 面里的 `hooks` 会被渲染器绑成选择器钩子，而这里要传的是一个带 React hooks 的函数，只能当普通 prop 传（`{ useStats: fn }`）。
 - **账本必须由 `apply` 闭包持有**，不能挂在池实例上：配置热更新会整体换池，挂在池上历史就丢了。
 - **换池时必须迁移占用记录**（`ModelPool.inherit(previous)`）：不迁的话新池 `active` 全 0，统计页看不出还有子代理在跑，并发上限也会失效（能再派满额），且子代理结束时 `release()` 打空导致占用永久泄漏。迁移按 `provider/model` 重新映射——换池后候选顺序可能变，旧池的下标不能直接用。注意别把方法取名成 `adopt`：池上已有 `adopt(childId, runId, route)` 用于锁定已分配路由，同类里同名方法后定义的赢，会静默覆盖。
+- **纵向布局必须显式指定谁可以收缩**（v0.4.2 修的 bug）：`.smpv-body` 是 flex column，三个子块（指标条 / 双栏 / 会话明细）默认 `flex-shrink:1`。会话记录变多后明细表内容变高，flex 分配先把指标条挤扁——实测 200 条会话时指标条从 104px 压到 4px，「509M」这个数字整体被裁到容器外（可见高度 −27px，肉眼等于消失）。修法是只让会话明细伸缩：`.smpv-cards`/`.smpv-grid`/`.smpv-head` 一律 `flex:none`，`.smpv-sessions` 用 `flex:1 1 0%`——**basis 必须是 0 不能是 auto**，auto 会把表格内容高度当基准，是这条 bug 的根。移动端断点还要补 `.smpv-sessions{flex:none}`：手机端 `min-height:0` + `overflow:visible` 时，`flex-basis:0` 会让会话区高度算成 0，200 条记录溢出绘制到安全区上（实测 sessions 高 0、内容 33540px）。
 - **子代理状态必须从 `ctx.on("subagent/start"|"subagent/end")` 更新，不能等 `session/event`**：这两个生命周期事件走 cordis 事件总线（`createLifecycleEmitter`），**不落 session log**，所以永远不会以 `session/event` 的形式到达。写错入口的症状是子代理答完退出了，页面还显示「进行中」。`agent/disposed` 只作兜底释放。
 - **API 顶层带 `health` 字段用于自诊断**：`{poolReady, explicitTrackingReady, activeCount, trackedSessions, poolGeneration, migratedOccupancy}`。`poolGeneration` 是换过几代池，`migratedOccupancy` 是累计迁移的占用数——改配置后看这两个数就知道旧占用有没有带过来，只看 `active` 不行（它恰好为 0 时分不清是没人在跑还是丢了）。`explicitTrackingReady` 反映 `patchStartActivation()` 是否成功打上补丁——如果它是 `false`，`agent/created` 里的整个分配分支会被跳过，池根本不工作，但页面上只会表现为「分配次数一直是 0」。排查 `assignments: 0` 时先看这个字段，不要直接当成 bug：没有派过子代理时它本来就是 0。
 
